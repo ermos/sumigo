@@ -1,5 +1,6 @@
 import { ReactNode, useState, useSyncExternalStore } from 'react';
 import { pendingWrites } from './api';
+import { t } from './i18n';
 
 export const Spinner = ({ className = 'size-3.5' }: { className?: string }) => (
   <svg viewBox="0 0 24 24" className={`${className} shrink-0 motion-safe:animate-spin`} fill="none" aria-hidden>
@@ -21,7 +22,7 @@ export function ProgressBar() {
   const n = useSyncExternalStore(pendingWrites.subscribe, pendingWrites.get);
   if (!n) return null;
   return (
-    <div role="progressbar" aria-label="Saving" className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-accent/15">
+    <div role="progressbar" aria-label={t('Saving')} className="fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-accent/15">
       <div className="progress-bar h-full w-2/5 bg-accent" />
     </div>
   );

@@ -79,16 +79,16 @@ func (a *API) requireUser(next http.HandlerFunc, adminOnly bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
 		if err != nil {
-			httpError(w, http.StatusUnauthorized, "not logged in")
+			httpError(w, http.StatusUnauthorized, "not_logged_in", "not logged in")
 			return
 		}
 		u, err := a.Store.UserBySession(c.Value)
 		if err != nil {
-			httpError(w, http.StatusUnauthorized, "not logged in")
+			httpError(w, http.StatusUnauthorized, "not_logged_in", "not logged in")
 			return
 		}
 		if adminOnly && !u.IsAdmin {
-			httpError(w, http.StatusForbidden, "admin only")
+			httpError(w, http.StatusForbidden, "admin_only", "admin only")
 			return
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, u)))
@@ -102,10 +102,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func httpError(w http.ResponseWriter, status int, msg string) {
+// params fills the placeholders of an error message in the web app translations.
+type params map[string]string
+
+// httpError writes {"error", "code", "params"}: the web app translates code and params,
+// error stays readable for API clients and logs.
+func httpError(w http.ResponseWriter, status int, code, msg string, p ...params) {
+	body := struct {
+		Error  string `json:"error"`
+		Code   string `json:"code"`
+		Params params `json:"params,omitempty"`
+	}{Error: msg, Code: code}
+	if len(p) > 0 {
+		body.Params = p[0]
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 // fail maps an error to an HTTP response, hiding internal details.
@@ -113,19 +126,19 @@ func fail(w http.ResponseWriter, err error) {
 	var gh *github.Error
 	switch {
 	case errors.Is(err, store.ErrNotFound) || github.IsNotFound(err):
-		httpError(w, http.StatusNotFound, "not found")
+		httpError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.As(err, &gh):
-		httpError(w, http.StatusBadGateway, gh.Error())
+		httpError(w, http.StatusBadGateway, "github", gh.Error(), params{"detail": gh.Error()})
 	default:
 		log.Printf("api error: %v", err)
-		httpError(w, http.StatusInternalServerError, "internal error")
+		httpError(w, http.StatusInternalServerError, "internal", "internal error")
 	}
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		httpError(w, http.StatusBadRequest, "invalid_json", "invalid JSON body")
 		return false
 	}
 	return true
@@ -145,7 +158,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := a.Store.Authenticate(strings.TrimSpace(in.Email), in.Password)
 	if errors.Is(err, store.ErrNotFound) {
-		httpError(w, http.StatusUnauthorized, "invalid credentials")
+		httpError(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
 		return
 	}
 	if err != nil {
@@ -195,30 +208,30 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 	u.ID = pathID(r, "id")
 	u.Email = strings.TrimSpace(u.Email)
 	if u.Email == "" || u.Name == "" {
-		httpError(w, http.StatusBadRequest, "email and name are required")
+		httpError(w, http.StatusBadRequest, "email_name_required", "email and name are required")
 		return
 	}
 	var err error
 	if u.ID == 0 {
 		if len(in.Password) < 8 {
-			httpError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			httpError(w, http.StatusBadRequest, "password_too_short", "password must be at least 8 characters")
 			return
 		}
 		err = a.Store.CreateUser(&u, in.Password)
 	} else {
 		if u.ID == userFrom(r).ID && !u.IsAdmin {
-			httpError(w, http.StatusBadRequest, "you cannot remove your own admin role")
+			httpError(w, http.StatusBadRequest, "own_admin_role", "you cannot remove your own admin role")
 			return
 		}
 		if in.Password != "" && len(in.Password) < 8 {
-			httpError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			httpError(w, http.StatusBadRequest, "password_too_short", "password must be at least 8 characters")
 			return
 		}
 		err = a.Store.UpdateUser(&u, in.Password)
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			httpError(w, http.StatusConflict, "email already used")
+			httpError(w, http.StatusConflict, "email_used", "email already used")
 			return
 		}
 		fail(w, err)
@@ -230,7 +243,7 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 func (a *API) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id := pathID(r, "id")
 	if id == userFrom(r).ID {
-		httpError(w, http.StatusBadRequest, "you cannot delete yourself")
+		httpError(w, http.StatusBadRequest, "delete_self", "you cannot delete yourself")
 		return
 	}
 	if err := a.Store.DeleteUser(id); err != nil {
@@ -279,7 +292,7 @@ func (a *API) saveSite(w http.ResponseWriter, r *http.Request) {
 	}
 	st.ID = pathID(r, "site")
 	if st.Name == "" || strings.Count(st.Repo, "/") != 1 {
-		httpError(w, http.StatusBadRequest, "name and repo (owner/name) are required")
+		httpError(w, http.StatusBadRequest, "name_repo_required", "name and repo (owner/name) are required")
 		return
 	}
 	if st.Branch == "" {
@@ -320,7 +333,7 @@ func (a *API) setAccess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.Store.SetAccess(pathID(r, "site"), list); err != nil {
-		httpError(w, http.StatusBadRequest, err.Error())
+		httpError(w, http.StatusBadRequest, "invalid_access", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	writeJSON(w, list)
@@ -332,12 +345,12 @@ func (a *API) checkSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := sc.gh.BranchSHA(r.Context(), sc.site.Branch); err != nil {
-		httpError(w, http.StatusBadGateway, "cannot read branch "+sc.site.Branch+": "+err.Error())
+		httpError(w, http.StatusBadGateway, "branch_unreadable", "cannot read branch "+sc.site.Branch+": "+err.Error(), params{"branch": sc.site.Branch, "detail": err.Error()})
 		return
 	}
 	cfg, err := a.config(r.Context(), sc, true)
 	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
+		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	writeJSON(w, map[string]int{"collections": len(cfg.Collections)})

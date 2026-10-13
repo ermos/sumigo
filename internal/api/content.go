@@ -47,7 +47,7 @@ func (a *API) site(w http.ResponseWriter, r *http.Request, min string) (*siteCtx
 		return nil, false
 	}
 	if !store.RoleAtLeast(role, min) {
-		httpError(w, http.StatusForbidden, "insufficient rights on this site")
+		httpError(w, http.StatusForbidden, "forbidden_site", "insufficient rights on this site")
 		return nil, false
 	}
 	st, err := a.Store.GetSite(id)
@@ -65,7 +65,7 @@ func (a *API) site(w http.ResponseWriter, r *http.Request, min string) (*siteCtx
 		}
 		sc.gh = a.NewGitHub(token, st.Repo)
 	} else if r.Pattern != "GET /api/sites/{site}" {
-		httpError(w, http.StatusConflict, "this site has no GitHub token configured")
+		httpError(w, http.StatusConflict, "no_token", "this site has no GitHub token configured")
 		return nil, false
 	}
 	return sc, true
@@ -98,7 +98,7 @@ func (a *API) collection(w http.ResponseWriter, r *http.Request, min string) (*s
 	}
 	cfg, err := a.config(r.Context(), sc, false)
 	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
+		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return nil, nil, false
 	}
 	for i, c := range cfg.Collections {
@@ -106,7 +106,7 @@ func (a *API) collection(w http.ResponseWriter, r *http.Request, min string) (*s
 			return sc, &cfg.Collections[i], true
 		}
 	}
-	httpError(w, http.StatusNotFound, "unknown collection")
+	httpError(w, http.StatusNotFound, "unknown_collection", "unknown collection")
 	return nil, nil, false
 }
 
@@ -203,7 +203,7 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := r.PathValue("slug")
 	if !validSlug(slug) {
-		httpError(w, http.StatusBadRequest, "invalid slug")
+		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
 	ref := sc.site.Branch
@@ -222,7 +222,7 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	data, body, err := content.Parse(raw)
 	if err != nil {
-		httpError(w, http.StatusUnprocessableEntity, "cannot parse front matter: "+err.Error())
+		httpError(w, http.StatusUnprocessableEntity, "front_matter", "cannot parse front matter: "+err.Error(), params{"detail": err.Error()})
 		return
 	}
 	data[content.BodyField] = body
@@ -246,18 +246,18 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, f := range col.Fields {
 		if v := in.Data[f.Name]; f.IsRequired() && f.Widget != "boolean" && (v == nil || v == "") {
-			httpError(w, http.StatusBadRequest, "field "+f.Name+" is required")
+			httpError(w, http.StatusBadRequest, "field_required", "field "+f.Name+" is required", params{"field": f.Name})
 			return
 		}
 	}
 	if in.Publish && sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
-		httpError(w, http.StatusForbidden, "only publishers can publish on this site, save a draft instead")
+		httpError(w, http.StatusForbidden, "publisher_only_draft", "only publishers can publish on this site, save a draft instead")
 		return
 	}
 	creating := r.Method == http.MethodPost
 	slug := r.PathValue("slug")
 	if creating && col.Create != nil && !*col.Create {
-		httpError(w, http.StatusForbidden, "this collection does not allow new entries (create: false)")
+		httpError(w, http.StatusForbidden, "create_disabled", "this collection does not allow new entries (create: false)")
 		return
 	}
 	if creating {
@@ -265,12 +265,12 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		slug = content.Slug(col.Slug, title, in.Data, time.Now())
 	}
 	if !validSlug(slug) {
-		httpError(w, http.StatusBadRequest, "invalid slug, check the title")
+		httpError(w, http.StatusBadRequest, "invalid_slug_title", "invalid slug, check the title")
 		return
 	}
 	raw, err := content.Render(col.Fields, in.Data)
 	if err != nil {
-		httpError(w, http.StatusBadRequest, err.Error())
+		httpError(w, http.StatusBadRequest, "invalid_data", err.Error(), params{"detail": err.Error()})
 		return
 	}
 
@@ -284,7 +284,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if creating {
 		if _, _, err := sc.gh.GetFile(ctx, file, sc.site.Branch); err == nil || pr != nil {
-			httpError(w, http.StatusConflict, "an entry with slug "+slug+" already exists")
+			httpError(w, http.StatusConflict, "slug_exists", "an entry with slug "+slug+" already exists", params{"slug": slug})
 			return
 		} else if !github.IsNotFound(err) {
 			fail(w, err)
@@ -350,7 +350,7 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := r.PathValue("slug")
 	if !validSlug(slug) {
-		httpError(w, http.StatusBadRequest, "invalid slug")
+		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
 	ctx := r.Context()
@@ -393,23 +393,23 @@ func (a *API) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := a.config(r.Context(), sc, false)
 	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
+		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	if cfg.MediaFolder == "" {
-		httpError(w, http.StatusBadRequest, "set media_folder in "+content.ConfigFile+" to upload files")
+		httpError(w, http.StatusBadRequest, "media_folder_missing", "set media_folder in "+content.ConfigFile+" to upload files")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	f, hdr, err := r.FormFile("file")
 	if err != nil {
-		httpError(w, http.StatusBadRequest, "missing file (max 10MB)")
+		httpError(w, http.StatusBadRequest, "missing_file", "missing file (max 10MB)")
 		return
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(f)
 	if err != nil {
-		httpError(w, http.StatusBadRequest, err.Error())
+		httpError(w, http.StatusBadRequest, "read_file", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	name := content.Slugify(strings.TrimSuffix(hdr.Filename, path.Ext(hdr.Filename)))
@@ -453,7 +453,7 @@ func (a *API) listMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := a.config(r.Context(), sc, false)
 	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
+		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	folder, public := mediaFolders(cfg)
@@ -519,12 +519,12 @@ func (a *API) mediaPath(w http.ResponseWriter, r *http.Request, min string) (*si
 	}
 	cfg, err := a.config(r.Context(), sc, false)
 	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
+		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return nil, "", false
 	}
 	name := r.PathValue("name")
 	if cfg.MediaFolder == "" || name == "" || strings.HasPrefix(name, ".") {
-		httpError(w, http.StatusNotFound, "not found")
+		httpError(w, http.StatusNotFound, "not_found", "not found")
 		return nil, "", false
 	}
 	return sc, path.Join(cfg.MediaFolder, name), true
@@ -599,7 +599,7 @@ func (a *API) mergePull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
-		httpError(w, http.StatusForbidden, "only publishers can publish on this site")
+		httpError(w, http.StatusForbidden, "publisher_only", "only publishers can publish on this site")
 		return
 	}
 	n, _ := strconv.Atoi(r.PathValue("number"))
@@ -622,5 +622,5 @@ func (a *API) mergePull(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	httpError(w, http.StatusNotFound, "no open CMS pull request with this number")
+	httpError(w, http.StatusNotFound, "no_cms_pull", "no open CMS pull request with this number")
 }

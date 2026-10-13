@@ -169,8 +169,12 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 		}
 		return res
 	}
-	if res := publish(); res.StatusCode != http.StatusForbidden {
-		t.Fatalf("editor published on a review site: %d", res.StatusCode)
+	res = publish()
+	var body struct{ Code string }
+	_ = json.NewDecoder(res.Body).Decode(&body)
+	// The web app translates errors by code.
+	if res.StatusCode != http.StatusForbidden || body.Code != "publisher_only_draft" {
+		t.Fatalf("editor published on a review site: %d %q", res.StatusCode, body.Code)
 	}
 	site.Workflow = "direct"
 	if err := st.SaveSite(site); err != nil {

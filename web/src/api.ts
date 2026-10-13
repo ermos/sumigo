@@ -1,3 +1,5 @@
+import { tError } from './i18n';
+
 export type Role = 'viewer' | 'editor' | 'publisher';
 
 export interface User {
@@ -114,7 +116,7 @@ export async function api<T = void>(method: string, path: string, body?: unknown
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new HttpError(res.status, err.error ?? res.statusText);
+      throw new HttpError(res.status, tError(err.code, err.params, err.error ?? res.statusText));
     }
     return res.status === 204 ? (undefined as T) : await res.json();
   } finally {
