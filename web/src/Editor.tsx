@@ -7,6 +7,7 @@ import { DraftPill, Empty, entriesKey, formatDate, Loading, Notice, useSite } fr
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
 import { Chevron } from './App';
+import { t } from './i18n';
 
 type Data = Record<string, unknown>;
 
@@ -78,7 +79,7 @@ export default function Editor() {
     };
   }, [dirty]);
 
-  if (!collection) return <Empty>Unknown collection.</Empty>;
+  if (!collection) return <Empty>{t('Unknown collection.')}</Empty>;
   const readOnly = !can(site.role, 'editor');
   // On a review site only publishers put entries live, editors save drafts for them.
   const canPublish = can(site.role, site.workflow === 'pr' ? 'publisher' : 'editor');
@@ -95,9 +96,16 @@ export default function Editor() {
       setDraft(res.draft);
       setDirty(false);
       const title = String(data?.[collection.identifier_field || 'title'] || res.slug);
-      const entry: EntrySummary = { slug: res.slug, path: '', title, date: data?.date as string | undefined, data: data ?? {}, draft: res.draft ?? undefined };
+      const entry: EntrySummary = {
+        slug: res.slug,
+        path: '',
+        title,
+        date: data?.date as string | undefined,
+        data: data ?? {},
+        draft: res.draft ?? undefined,
+      };
       updateList((list) => (list.some((e) => e.slug === res.slug) ? list.map((e) => (e.slug === res.slug ? { ...e, ...entry, path: e.path } : e)) : [entry, ...list]));
-      setStatus(publish ? `Published on ${site.branch}` : 'Draft saved');
+      setStatus(publish ? t('Published on {branch}', { branch: site.branch }) : t('Draft saved'));
       if (!slug) navigate(`/sites/${site.id}/c/${col}/e/${encodeURIComponent(res.slug)}`, { replace: true });
     } catch (err) {
       setError((err as Error).message);
@@ -107,7 +115,7 @@ export default function Editor() {
   };
 
   const remove = async () => {
-    if (!slug || !confirm(`Delete ${slug}? ${draft ? 'The draft pull request will be closed.' : 'This commits the deletion.'}`)) return;
+    if (!slug || !confirm(`${t('Delete {name}?', { name: slug })} ${t(draft ? 'The draft pull request will be closed.' : 'This commits the deletion.')}`)) return;
     setBusy('delete');
     try {
       await api('DELETE', `${base}/${encodeURIComponent(slug)}`);
@@ -130,7 +138,7 @@ export default function Editor() {
   const back = `/sites/${site.id}/c/${col}`;
   const title = (data && collection.identifier_field && String(data[collection.identifier_field] ?? '')) || (data && typeof data.title === 'string' && data.title) || slug;
 
-  const leave = (e: { preventDefault: () => void }) => dirty && !confirm('Leave without saving? Your changes will be lost.') && e.preventDefault();
+  const leave = (e: { preventDefault: () => void }) => dirty && !confirm(t('Leave without saving? Your changes will be lost.')) && e.preventDefault();
 
   return (
     <form ref={form} onSubmit={save} className="flex h-screen flex-col">
@@ -140,38 +148,50 @@ export default function Editor() {
           {collection.label || collection.name}
         </Link>
         <span className="h-5 w-px bg-line" />
-        <span className="min-w-0 truncate px-2 text-[14px] font-medium">{title || 'New entry'}</span>
+        <span className="min-w-0 truncate px-2 text-[14px] font-medium">{title || t('New entry')}</span>
         {draft && (
-          <a href={draft.html_url} target="_blank" rel="noreferrer" title="Open the pull request on GitHub">
+          <a href={draft.html_url} target="_blank" rel="noreferrer" title={t('Open the pull request on GitHub')}>
             <DraftPill pull={draft} />
           </a>
         )}
-        {readOnly && <span className="pill bg-canvas text-muted ring-1 ring-line">Read only</span>}
+        {readOnly && <span className="pill bg-canvas text-muted ring-1 ring-line">{t('Read only')}</span>}
         <span className="flex-1" />
         {dirty ? (
           <span className="hidden items-center gap-1.5 text-[13px] text-muted sm:flex">
             <span className="size-1.5 rounded-full bg-amber-500" />
-            Unsaved changes
+            {t('Unsaved changes')}
           </span>
         ) : (
           status && <span className="hidden text-[13px] text-ok sm:inline">{status}</span>
         )}
         <button type="button" className="btn hidden lg:inline-flex" onClick={() => setPreview(!preview)} aria-pressed={preview}>
-          {preview ? 'Hide preview' : 'Show preview'}
+          {t(preview ? 'Hide preview' : 'Show preview')}
         </button>
         {slug && can(site.role, 'publisher') && (
           <button type="button" className="btn btn-danger" onClick={remove} disabled={!!busy}>
-            <Pending on={busy === 'delete'}>{busy === 'delete' ? 'Deleting…' : 'Delete'}</Pending>
+            <Pending on={busy === 'delete'}>{t(busy === 'delete' ? 'Deleting…' : 'Delete')}</Pending>
           </button>
         )}
         {!readOnly && (
-          <button name="draft" className="btn" disabled={!!busy || !data} title="Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)">
-            <Pending on={busy === 'draft'}>{busy === 'draft' ? 'Saving…' : 'Save draft'}</Pending>
+          <button name="draft" className="btn" disabled={!!busy || !data} title={t('Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)')}>
+            <Pending on={busy === 'draft'}>{t(busy === 'draft' ? 'Saving…' : 'Save draft')}</Pending>
           </button>
         )}
         {canPublish && (
-          <button name="publish" className="btn btn-primary" disabled={!!busy || !data} title={draft ? `Merges pull request #${draft.number} into ${site.branch}` : `Commits to ${site.branch}`}>
-            <Pending on={busy === 'publish'}>{busy === 'publish' ? 'Publishing…' : 'Publish'}</Pending>
+          <button
+            name="publish"
+            className="btn btn-primary"
+            disabled={!!busy || !data}
+            title={
+              draft
+                ? t('Merges pull request #{n} into {branch}', {
+                    n: draft.number,
+                    branch: site.branch,
+                  })
+                : t('Commits to {branch}', { branch: site.branch })
+            }
+          >
+            <Pending on={busy === 'publish'}>{t(busy === 'publish' ? 'Publishing…' : 'Publish')}</Pending>
           </button>
         )}
       </header>
@@ -208,7 +228,7 @@ const renderMarkdown = (md: string, site: SiteDetail) => {
 function Preview({ site, fields, titleField, data }: { site: SiteDetail; fields: Field[]; titleField: string; data: Data }) {
   return (
     <article className="prose-preview mx-auto max-w-2xl px-10 py-12">
-      <h1 className="text-3xl leading-tight font-semibold tracking-tight">{String(data[titleField] ?? '') || <span className="text-muted">Untitled</span>}</h1>
+      <h1 className="text-3xl leading-tight font-semibold tracking-tight">{String(data[titleField] ?? '') || <span className="text-muted">{t('Untitled')}</span>}</h1>
       {fields.map((f) => {
         const v = data[f.name];
         if (v == null || v === '' || f.name === titleField) return null;
@@ -229,7 +249,15 @@ function Preview({ site, fields, titleField, data }: { site: SiteDetail; fields:
           case 'image':
             return <img key={f.name} src={mediaSrc(site, String(v))} alt="" onError={(e) => (e.currentTarget.style.display = 'none')} />;
           case 'markdown':
-            return <div key={f.name} className="prose-preview" dangerouslySetInnerHTML={{ __html: renderMarkdown(String(v), site) }} />;
+            return (
+              <div
+                key={f.name}
+                className="prose-preview"
+                dangerouslySetInnerHTML={{
+                  __html: renderMarkdown(String(v), site),
+                }}
+              />
+            );
           default:
             return null;
         }
@@ -262,7 +290,7 @@ function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
   const label = (
     <span>
       {field.label || field.name}
-      {!isRequired(field) && <span className="font-normal text-muted"> (optional)</span>}
+      {!isRequired(field) && <span className="font-normal text-muted"> {t('(optional)')}</span>}
     </span>
   );
   const str = value == null ? '' : String(value);
@@ -349,7 +377,7 @@ function JsonInput({ value, onChange, readOnly }: { value: unknown; onChange: (v
           }
         }}
       />
-      {invalid && <span className="text-xs font-normal text-danger">Invalid JSON, changes are not applied until it parses.</span>}
+      {invalid && <span className="text-xs font-normal text-danger">{t('Invalid JSON, changes are not applied until it parses.')}</span>}
     </>
   );
 }
@@ -361,7 +389,7 @@ function ListInput({ value, onChange, readOnly }: { value: string[]; onChange: (
       className="field"
       value={text}
       disabled={readOnly}
-      placeholder="comma, separated, values"
+      placeholder={t('comma, separated, values')}
       onChange={(e) => {
         setText(e.target.value);
         onChange(
@@ -404,7 +432,7 @@ function ImageInput({ site, value, onChange, readOnly }: { site: SiteDetail; val
       <input className="field" value={value} onChange={(e) => onChange(e.target.value)} disabled={readOnly} placeholder="/images/cover.jpg" />
       {!readOnly && (
         <span className="btn relative self-start">
-          <Pending on={busy}>{busy ? 'Uploading…' : 'Upload an image'}</Pending>
+          <Pending on={busy}>{t(busy ? 'Uploading…' : 'Upload an image')}</Pending>
           <input type="file" accept="image/*" disabled={busy} className="absolute inset-0 cursor-pointer opacity-0" onChange={(e) => upload(e.target.files?.[0])} />
         </span>
       )}
@@ -455,10 +483,10 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
     return { s, e, v, text: v.slice(s, e) };
   };
 
-  const wrap = (before: string, after = before, placeholder = 'text') => {
+  const wrap = (before: string, after = before, placeholder = t('text')) => {
     const { s, e, text } = sel();
-    const t = text || placeholder;
-    replace(s, e, before + t + after, s + before.length, s + before.length + t.length);
+    const label = text || placeholder;
+    replace(s, e, before + label + after, s + before.length, s + before.length + label.length);
   };
 
   // block toggles a line prefix (heading, quote, list) on every selected line.
@@ -473,9 +501,9 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
 
   const link = (url = 'https://') => {
     const { s, e, text } = sel();
-    const t = text || 'link text';
-    const md = `[${t}](${url})`;
-    replace(s, e, md, text ? s + t.length + 3 : s + 1, text ? s + md.length - 1 : s + 1 + t.length);
+    const label = text || t('link text');
+    const md = `[${label}](${url})`;
+    replace(s, e, md, text ? s + label.length + 3 : s + 1, text ? s + md.length - 1 : s + 1 + label.length);
   };
 
   const code = () => (sel().text.includes('\n') ? wrap('```\n', '\n```', 'code') : wrap('`', '`', 'code'));
@@ -494,24 +522,68 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
     }
   };
 
-  const tools: { title: string; icon: ReactNode; run: () => void; key?: string }[][] = [
+  const tools: {
+    title: string;
+    icon: ReactNode;
+    run: () => void;
+    key?: string;
+  }[][] = [
     [
-      { title: 'Heading', icon: <span className="text-[13px] font-semibold">H2</span>, run: () => block(/^## /, () => '## ') },
-      { title: 'Subheading', icon: <span className="text-[13px] font-semibold">H3</span>, run: () => block(/^### /, () => '### ') },
+      {
+        title: t('Heading'),
+        icon: <span className="text-[13px] font-semibold">H2</span>,
+        run: () => block(/^## /, () => '## '),
+      },
+      {
+        title: t('Subheading'),
+        icon: <span className="text-[13px] font-semibold">H3</span>,
+        run: () => block(/^### /, () => '### '),
+      },
     ],
     [
-      { title: 'Bold', icon: <Icon d={icons.bold} />, run: () => wrap('**'), key: 'b' },
-      { title: 'Italic', icon: <Icon d={icons.italic} />, run: () => wrap('_'), key: 'i' },
-      { title: 'Strikethrough', icon: <Icon d={icons.strike} />, run: () => wrap('~~') },
+      {
+        title: t('Bold'),
+        icon: <Icon d={icons.bold} />,
+        run: () => wrap('**'),
+        key: 'b',
+      },
+      {
+        title: t('Italic'),
+        icon: <Icon d={icons.italic} />,
+        run: () => wrap('_'),
+        key: 'i',
+      },
+      {
+        title: t('Strikethrough'),
+        icon: <Icon d={icons.strike} />,
+        run: () => wrap('~~'),
+      },
     ],
     [
-      { title: 'Link', icon: <Icon d={icons.link} />, run: () => link(), key: 'k' },
-      { title: 'Quote', icon: <Icon d={icons.quote} />, run: () => block(/^> /, () => '> ') },
-      { title: 'Code', icon: <Icon d={icons.code} />, run: code, key: 'e' },
+      {
+        title: t('Link'),
+        icon: <Icon d={icons.link} />,
+        run: () => link(),
+        key: 'k',
+      },
+      {
+        title: t('Quote'),
+        icon: <Icon d={icons.quote} />,
+        run: () => block(/^> /, () => '> '),
+      },
+      { title: t('Code'), icon: <Icon d={icons.code} />, run: code, key: 'e' },
     ],
     [
-      { title: 'Bulleted list', icon: <Icon d={icons.ul} />, run: () => block(/^[-*] /, () => '- ') },
-      { title: 'Numbered list', icon: <Icon d={icons.ol} />, run: () => block(/^\d+\. /, (i) => `${i + 1}. `) },
+      {
+        title: t('Bulleted list'),
+        icon: <Icon d={icons.ul} />,
+        run: () => block(/^[-*] /, () => '- '),
+      },
+      {
+        title: t('Numbered list'),
+        icon: <Icon d={icons.ol} />,
+        run: () => block(/^\d+\. /, (i) => `${i + 1}. `),
+      },
     ],
   ];
 
@@ -565,7 +637,7 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
       <div className="panel focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-t-lg border-b border-line bg-surface px-2 py-1.5">
           {!readOnly && (
-            <div role="toolbar" aria-label="Formatting" className="flex flex-wrap items-center">
+            <div role="toolbar" aria-label={t('Formatting')} className="flex flex-wrap items-center">
               {tools.map((group, i) => (
                 <div key={i} className="mr-1.5 flex items-center gap-0.5 border-r border-line pr-1.5">
                   {group.map((t) => (
@@ -586,8 +658,8 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
               <button
                 type="button"
                 className={btn}
-                title="Insert an image (or paste / drop one in the text)"
-                aria-label="Insert an image"
+                title={t('Insert an image (or paste / drop one in the text)')}
+                aria-label={t('Insert an image')}
                 disabled={uploading}
                 onClick={() => fileInput.current?.click()}
               >
@@ -597,12 +669,12 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
               {uploading && (
                 <span className="ml-2 flex items-center gap-1.5 text-xs font-normal text-muted">
                   <Spinner className="size-3 text-accent" />
-                  Uploading image…
+                  {t('Uploading image…')}
                 </span>
               )}
             </div>
           )}
-          <span className="ml-auto pr-1 text-xs font-normal text-muted tabular-nums">{words} words</span>
+          <span className="ml-auto pr-1 text-xs font-normal text-muted tabular-nums">{t('{n} words', { n: words })}</span>
         </div>
         {error && <p className="border-b border-line bg-danger/5 px-4 py-2 text-xs font-normal text-danger">{error}</p>}
         <textarea
@@ -614,8 +686,8 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
           onPaste={onPaste}
           onDrop={onDrop}
           disabled={readOnly}
-          placeholder="Start writing. Markdown works, and you can paste or drop images here."
-          aria-label="Content"
+          placeholder={t('Start writing. Markdown works, and you can paste or drop images here.')}
+          aria-label={t('Content')}
         />
       </div>
     </div>

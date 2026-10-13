@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
+import { Lang, lang, languages, setLang, t } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
 import { CollectionView, ContentLayout, MediaView, PullsView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
@@ -14,6 +15,13 @@ export interface Ctx {
 }
 
 export const useCtx = () => useOutletContext<Ctx>();
+
+export const roleNames = {
+  admin: 'Admin',
+  viewer: 'Viewer',
+  editor: 'Editor',
+  publisher: 'Publisher',
+} as const;
 
 export default function App() {
   const [me, setMe] = useState<User | null | undefined>(undefined);
@@ -61,7 +69,7 @@ export default function App() {
               <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
             </>
           )}
-          <Route path="*" element={<p className="text-muted">Page not found.</p>} />
+          <Route path="*" element={<p className="text-muted">{t('Page not found.')}</p>} />
         </Route>
       </Routes>
     </>
@@ -113,13 +121,13 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
           {base && (
             <nav className="flex items-center gap-1">
               <Link to={base} className={topLink(pathname === base || pathname.startsWith(`${base}/c/`))}>
-                Content
+                {t('Content')}
               </Link>
               <Link to={`${base}/workflow`} className={topLink(pathname === `${base}/workflow`)}>
-                Workflow
+                {t('Workflow')}
               </Link>
               <Link to={`${base}/media`} className={topLink(pathname === `${base}/media`)}>
-                Media
+                {t('Media')}
               </Link>
             </nav>
           )}
@@ -132,7 +140,7 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
                   <span className="hidden max-w-48 truncate sm:inline">{current.name}</span>
                 </>
               ) : (
-                <span className="text-muted">Choose a site</span>
+                <span className="text-muted">{t('Choose a site')}</span>
               )}
               <Chevron />
             </summary>
@@ -144,7 +152,7 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
                   <span className="truncate font-mono text-[11px] text-muted">{s.repo}</span>
                 </NavLink>
               ))}
-              {sites.length === 0 && <p className="px-2.5 py-2 text-[13px] text-muted">No site yet.</p>}
+              {sites.length === 0 && <p className="px-2.5 py-2 text-[13px] text-muted">{t('No site yet.')}</p>}
               {me.is_admin && (
                 <div className="mt-1 border-t border-line pt-1">
                   <NavLink to="/admin/sites/new" className={menuItem}>
@@ -153,7 +161,7 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
                         <path d="M12 5v14M5 12h14" />
                       </svg>
                     </span>
-                    Add a site
+                    {t('Add a site')}
                   </NavLink>
                 </div>
               )}
@@ -162,7 +170,7 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
           <details key={`me-${pathname}`} className="relative ml-1">
             <summary
               className="grid size-8 cursor-pointer list-none place-items-center rounded-full bg-accent-soft text-[13px] font-semibold text-accent ring-accent/30 hover:ring-2"
-              aria-label="Account menu"
+              aria-label={t('Account menu')}
             >
               {me.name.charAt(0).toUpperCase()}
             </summary>
@@ -174,13 +182,23 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
               {me.is_admin && (
                 <div className="border-t border-line pt-1">
                   <NavLink to="/admin/users" className={menuItem}>
-                    Users
+                    {t('Users')}
                   </NavLink>
                 </div>
               )}
+              <label className="mt-1 flex items-center gap-2 border-t border-line px-2.5 pt-2 pb-1 text-[13px] text-muted">
+                {t('Language')}
+                <select className="field ml-auto w-auto py-1" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+                  {Object.entries(languages).map(([code, name]) => (
+                    <option key={code} value={code}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <div className="mt-1 border-t border-line pt-1">
                 <button className="flex w-full rounded-md px-2.5 py-2 text-[13px] text-danger hover:bg-canvas" onClick={logout}>
-                  Log out
+                  {t('Log out')}
                 </button>
               </div>
             </div>
@@ -198,9 +216,9 @@ function Home() {
   const { me, sites } = useCtx();
   return (
     <div className="mx-auto max-w-2xl">
-      <h1>Hello {me.name}</h1>
+      <h1>{t('Hello {name}', { name: me.name })}</h1>
       <p className="mt-1 text-muted">
-        {sites.length ? 'Choose a site to manage its articles.' : me.is_admin ? 'Connect a GitHub repository to start editing its content.' : 'Ask an admin to give you access to a site.'}
+        {t(sites.length ? 'Choose a site to manage its articles.' : me.is_admin ? 'Connect a GitHub repository to start editing its content.' : 'Ask an admin to give you access to a site.')}
       </p>
       {sites.length > 0 ? (
         <ul className="panel mt-6 divide-y divide-line">
@@ -210,7 +228,7 @@ function Home() {
                 <Monogram name={s.name} />
                 <span className="font-medium">{s.name}</span>
                 <span className="font-mono text-xs text-muted">{s.repo}</span>
-                <span className="ml-auto text-xs text-muted capitalize">{s.role ?? 'admin'}</span>
+                <span className="ml-auto text-xs text-muted">{t(roleNames[s.role ?? 'admin'])}</span>
               </Link>
             </li>
           ))}
@@ -218,7 +236,7 @@ function Home() {
       ) : (
         me.is_admin && (
           <Link to="/admin/sites/new" className="btn btn-primary mt-6">
-            Add a site
+            {t('Add a site')}
           </Link>
         )
       )}
@@ -236,7 +254,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
     try {
       onLogin(await api<User>('POST', '/login', { email, password }));
     } catch (err) {
-      setError(err instanceof HttpError ? err.message : 'Login failed');
+      setError(err instanceof HttpError ? err.message : t('Login failed'));
     }
   };
   return (
@@ -248,20 +266,20 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
         </div>
         <div className="panel flex flex-col gap-4 p-6 shadow-sm">
           <div>
-            <h1 className="text-xl">Log in</h1>
-            <p className="text-[13px] text-muted">Use the account an admin created for you.</p>
+            <h1 className="text-xl">{t('Log in')}</h1>
+            <p className="text-[13px] text-muted">{t('Use the account an admin created for you.')}</p>
           </div>
           <label className="label">
-            Email
+            {t('Email')}
             <input className="field" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
           </label>
           <label className="label">
-            Password
+            {t('Password')}
             <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
           {error && <p className="text-[13px] text-danger">{error}</p>}
           <button className="btn btn-primary py-2" disabled={!!pending}>
-            <Pending on={!!pending}>{pending ? 'Logging in…' : 'Log in'}</Pending>
+            <Pending on={!!pending}>{t(pending ? 'Logging in…' : 'Log in')}</Pending>
           </button>
         </div>
       </form>
