@@ -12,14 +12,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=ui /web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /articlecms ./cmd/articlecms
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /sumigo ./cmd/sumigo
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app && mkdir /data && chown app /data
 USER app
-COPY --from=build /articlecms /usr/local/bin/articlecms
-ENV DATABASE_PATH=/data/articlecms.db PORT=8080
+COPY --from=build /sumigo /usr/local/bin/sumigo
+ENV DATABASE_PATH=/data/sumigo.db PORT=8080
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK CMD wget -qO- http://localhost:8080/ping || exit 1
-ENTRYPOINT ["articlecms"]
+ENTRYPOINT ["sumigo"]

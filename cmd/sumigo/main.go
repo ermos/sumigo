@@ -28,7 +28,7 @@ func main() {
 	if len(secret) < 16 {
 		log.Fatal("SECRET_KEY must be set (16+ chars); it encrypts GitHub tokens at rest")
 	}
-	st, err := store.Open(env("DATABASE_PATH", "articlecms.db"), secret)
+	st, err := store.Open(env("DATABASE_PATH", "sumigo.db"), secret)
 	if err != nil {
 		log.Fatal(err)
 	}

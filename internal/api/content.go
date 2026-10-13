@@ -310,14 +310,14 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	if sha == "" {
 		action = "create"
 	}
-	msg := fmt.Sprintf("content(%s): %s %s\n\nEdited by %s <%s> via ArticleCMS", col.Name, action, slug, sc.user.Name, sc.user.Email)
+	msg := fmt.Sprintf("content(%s): %s %s\n\nEdited by %s <%s> via Sumigo", col.Name, action, slug, sc.user.Name, sc.user.Email)
 	if err := sc.gh.PutFile(ctx, file, branch, msg, raw, sha, sc.author()); err != nil {
 		fail(w, err)
 		return
 	}
 	if sc.site.Workflow == "pr" && pr == nil {
 		title := fmt.Sprintf("content(%s): %s %s (by %s)", col.Name, action, slug, sc.user.Name)
-		body := fmt.Sprintf("Opened from ArticleCMS by **%s** (%s).", sc.user.Name, sc.user.Email)
+		body := fmt.Sprintf("Opened from Sumigo by **%s** (%s).", sc.user.Name, sc.user.Email)
 		if pr, err = sc.gh.CreatePull(ctx, title, branch, sc.site.Branch, body); err != nil {
 			fail(w, err)
 			return
@@ -360,7 +360,7 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	msg := fmt.Sprintf("content(%s): delete %s\n\nDeleted by %s <%s> via ArticleCMS", col.Name, slug, sc.user.Name, sc.user.Email)
+	msg := fmt.Sprintf("content(%s): delete %s\n\nDeleted by %s <%s> via Sumigo", col.Name, slug, sc.user.Name, sc.user.Email)
 	if err := sc.gh.DeleteFile(ctx, file, sc.site.Branch, msg, sha, sc.author()); err != nil {
 		fail(w, err)
 		return
@@ -402,7 +402,7 @@ func (a *API) uploadMedia(w http.ResponseWriter, r *http.Request) {
 	name = fmt.Sprintf("%s-%d%s", name, time.Now().Unix(), sanitizeExt(path.Ext(hdr.Filename)))
 	file := path.Join(cfg.MediaFolder, name)
 	// ponytail: media always lands on the site branch, even in "pr" workflow; unused files stay if a draft is dropped.
-	msg := fmt.Sprintf("content(media): upload %s\n\nUploaded by %s <%s> via ArticleCMS", name, sc.user.Name, sc.user.Email)
+	msg := fmt.Sprintf("content(media): upload %s\n\nUploaded by %s <%s> via Sumigo", name, sc.user.Name, sc.user.Email)
 	if err := sc.gh.PutFile(r.Context(), file, sc.site.Branch, msg, data, "", sc.author()); err != nil {
 		fail(w, err)
 		return

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	sessionCookie = "acms_session"
+	sessionCookie = "sumigo_session"
 	sessionTTL    = 30 * 24 * time.Hour
 )
 

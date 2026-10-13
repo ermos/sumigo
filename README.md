@@ -1,8 +1,8 @@
-# ArticleCMS
+# Sumigo
 
 Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages the blog content of many GitHub repositories.
 
-- **No "Login with GitHub"**: each site has a GitHub token (encrypted at rest). Users log in to ArticleCMS with their own account.
+- **No "Login with GitHub"**: each site has a GitHub token (encrypted at rest). Users log in to Sumigo with their own account.
 - **Attribution**: commits are authored with the CMS user's name and email (the token owner stays the committer), and PR titles and bodies name the author.
 - **Access control**: per-site roles `viewer` < `editor` < `publisher`, plus global admins.
 - **Workflows** per site:
@@ -16,12 +16,12 @@ Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages
 ```bash
 cp .env.example .env   # set SECRET_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
 make build-web
-set -a; . ./.env; set +a; ./bin/articlecms
+set -a; . ./.env; set +a; ./bin/sumigo
 ```
 
-Or with Docker: `make docker && docker run -p 8080:8080 --env-file .env -v articlecms:/data articlecms`.
+Or with Docker: `make docker && docker run -p 8080:8080 --env-file .env -v sumigo:/data sumigo`.
 
-Dev: `go run ./cmd/articlecms` and `cd web && npm run dev` (Vite proxies `/api` to `:8080`).
+Dev: `go run ./cmd/sumigo` and `cd web && npm run dev` (Vite proxies `/api` to `:8080`).
 
 ## GitHub token
 

@@ -66,7 +66,7 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
     <div className="shell">
       <aside className="sidebar">
         <NavLink to="/" className="brand">
-          ArticleCMS
+          Sumigo
         </NavLink>
         <div className="nav-title">Sites</div>
         {sites.map((s) => (
@@ -126,7 +126,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
   };
   return (
     <form className="card login" onSubmit={submit}>
-      <h1>ArticleCMS</h1>
+      <h1>Sumigo</h1>
       <label>
         Email
         <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
