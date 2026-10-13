@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"path"
 	"strconv"
@@ -411,12 +412,85 @@ func (a *API) uploadMedia(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	_, public := mediaFolders(cfg)
+	writeJSON(w, map[string]string{"path": file, "url": path.Join(public, name)})
+}
+
+// mediaFolders returns where media lives in the repo and the URL prefix the site serves it from.
+func mediaFolders(cfg *content.Config) (string, string) {
 	public := cfg.PublicFolder
 	if public == "" {
 		public = cfg.MediaFolder
 	}
-	public = "/" + strings.Trim(path.Join(public, name), "/")
-	writeJSON(w, map[string]string{"path": file, "url": public})
+	return cfg.MediaFolder, "/" + strings.Trim(public, "/")
+}
+
+type mediaFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	URL  string `json:"url"`
+}
+
+// listMedia lists the files at the root of the site media folder.
+func (a *API) listMedia(w http.ResponseWriter, r *http.Request) {
+	sc, ok := a.site(w, r, store.RoleViewer)
+	if !ok {
+		return
+	}
+	cfg, err := a.config(r.Context(), sc, false)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	folder, public := mediaFolders(cfg)
+	out := []mediaFile{}
+	if folder == "" {
+		writeJSON(w, out)
+		return
+	}
+	files, err := sc.gh.ListDir(r.Context(), folder, sc.site.Branch)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	for _, f := range files {
+		if f.Type == "file" {
+			out = append(out, mediaFile{Name: f.Name, Size: f.Size, URL: path.Join(public, f.Name)})
+		}
+	}
+	writeJSON(w, out)
+}
+
+// getMedia streams one media file from GitHub, so images of private repos show in the CMS.
+func (a *API) getMedia(w http.ResponseWriter, r *http.Request) {
+	sc, ok := a.site(w, r, store.RoleViewer)
+	if !ok {
+		return
+	}
+	cfg, err := a.config(r.Context(), sc, false)
+	if err != nil {
+		httpError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	name := r.PathValue("name")
+	if cfg.MediaFolder == "" || name == "" || strings.HasPrefix(name, ".") {
+		httpError(w, http.StatusNotFound, "not found")
+		return
+	}
+	body, err := sc.gh.GetRaw(r.Context(), path.Join(cfg.MediaFolder, name), sc.site.Branch)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	// Uploaded files are untrusted: never let them run script on the CMS origin (SVG, HTML).
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	_, _ = io.Copy(w, body)
 }
 
 func sanitizeExt(e string) string {

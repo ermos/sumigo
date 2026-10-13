@@ -58,6 +58,10 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("[]"))
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/git/ref/heads/"):
 		_, _ = w.Write([]byte(`{"object":{"sha":"base123"}}`))
+	case r.Method == http.MethodGet && p == "/contents/static/img":
+		_, _ = w.Write([]byte(`[{"name":"cat.svg","type":"file","size":3},{"name":"old","type":"dir"}]`))
+	case r.Method == http.MethodGet && p == "/contents/static/img/cat.svg" && strings.Contains(r.Header.Get("Accept"), "raw"):
+		_, _ = w.Write([]byte("<svg/>"))
 	case r.Method == http.MethodGet:
 		w.WriteHeader(http.StatusNotFound)
 	default:
@@ -152,5 +156,56 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	}
 	if gh.graphql["dir"] != "main:content/posts" || gh.graphql["e0"] != "cms/posts/hello-world:content/posts/hello-world.md" {
 		t.Fatalf("graphql vars = %v", gh.graphql)
+	}
+}
+
+func TestMediaIsListedAndServedSafely(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), "test-secret-key-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	ghSrv := httptest.NewServer(&fakeGitHub{})
+	defer ghSrv.Close()
+	a := &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
+		c := github.New(token, repo)
+		c.BaseURL = ghSrv.URL
+		return c
+	}}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+
+	viewer := &store.User{Email: "bob@acme.io", Name: "Bob"}
+	if err := st.CreateUser(viewer, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: viewer.ID, Role: store.RoleViewer}}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(viewer.ID, time.Hour)
+	get := func(path string) (*http.Response, string) {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+path, nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res, string(b)
+	}
+
+	if _, body := get("/api/sites/1/media"); body != `[{"name":"cat.svg","size":3,"url":"/static/img/cat.svg"}]`+"\n" {
+		t.Fatalf("list: %s", body)
+	}
+	res, body := get("/api/sites/1/media/cat.svg")
+	if body != "<svg/>" || res.Header.Get("Content-Type") != "image/svg+xml" {
+		t.Fatalf("file: %q %s", body, res.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(res.Header.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatal("uploaded files must be served sandboxed")
 	}
 }
