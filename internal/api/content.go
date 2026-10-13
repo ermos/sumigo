@@ -138,15 +138,19 @@ type entrySummary struct {
 	Title string       `json:"title"`
 	Date  any          `json:"date,omitempty"`
 	Draft *github.Pull `json:"draft,omitempty"`
+	// Data is the full entry (front matter + body), so the UI opens it without another call.
+	Data map[string]any `json:"data,omitempty"`
 }
 
 func summarize(col *content.Collection, slug, text string) entrySummary {
 	e := entrySummary{Slug: slug, Path: entryPath(col, slug), Title: slug}
-	if data, _, err := content.Parse([]byte(text)); err == nil {
+	if data, body, err := content.Parse([]byte(text)); err == nil {
 		if t, ok := data[col.TitleField()].(string); ok && t != "" {
 			e.Title = t
 		}
 		e.Date = data["date"]
+		data[content.BodyField] = body
+		e.Data = data
 	}
 	return e
 }

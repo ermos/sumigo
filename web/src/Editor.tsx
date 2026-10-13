@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Entry, Field, Pull, Site } from './api';
-import { useSite } from './Site';
+import { api, can, Entry, EntrySummary, Field, Pull, Site } from './api';
+import { entriesKey, useSite } from './Site';
+import { getCached, setCached } from './cache';
 
 type Data = Record<string, unknown>;
 
@@ -12,8 +13,12 @@ export default function Editor() {
   const { col, slug } = useParams();
   const navigate = useNavigate();
   const collection = site.config?.collections.find((c) => c.name === col);
-  const [data, setData] = useState<Data | null>(slug ? null : {});
-  const [draft, setDraft] = useState<Pull | null>(null);
+  const listKey = entriesKey(site.id, col);
+  // The collection list already holds every entry: open it from there, then refresh.
+  const cachedEntry = () => (slug ? getCached<EntrySummary[]>(listKey)?.find((e) => e.slug === slug) : undefined);
+  const [data, setData] = useState<Data | null>(() => cachedEntry()?.data ?? (slug ? null : {}));
+  const [draft, setDraft] = useState<Pull | null>(() => cachedEntry()?.draft ?? null);
+  const dirty = useRef(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -26,13 +31,30 @@ export default function Editor() {
       setData(defaults);
       return;
     }
+    const cached = cachedEntry();
+    dirty.current = false;
+    setData(cached?.data ?? null);
+    setDraft(cached?.draft ?? null);
+    let live = true;
     api<Entry>('GET', `${base}/${encodeURIComponent(slug)}`)
       .then((e) => {
+        // Never overwrite what the user started typing with the background refresh.
+        if (!live || dirty.current) return;
         setData(e.data);
         setDraft(e.draft);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base, slug, collection]);
+
+  // updateList keeps the cached collection list in sync after a save or a delete.
+  const updateList = (fn: (list: EntrySummary[]) => EntrySummary[]) => {
+    const list = getCached<EntrySummary[]>(listKey);
+    if (list) setCached(listKey, fn(list));
+  };
 
   if (!collection) return <p className="muted">Unknown collection.</p>;
   const readOnly = !can(site.role, 'editor');
@@ -44,6 +66,9 @@ export default function Editor() {
     try {
       const res = await api<{ slug: string; draft: Pull | null }>(slug ? 'PUT' : 'POST', slug ? `${base}/${encodeURIComponent(slug)}` : base, { data });
       setDraft(res.draft);
+      const title = String(data?.[collection.identifier_field || 'title'] || res.slug);
+      const entry: EntrySummary = { slug: res.slug, path: '', title, date: data?.date as string | undefined, data: data ?? {}, draft: res.draft ?? undefined };
+      updateList((list) => (list.some((e) => e.slug === res.slug) ? list.map((e) => (e.slug === res.slug ? { ...e, ...entry, path: e.path } : e)) : [entry, ...list]));
       setStatus(res.draft ? `Saved to pull request #${res.draft.number}` : `Committed to ${site.branch}`);
       if (!slug) navigate(`/sites/${site.id}/c/${col}/e/${encodeURIComponent(res.slug)}`, { replace: true });
     } catch (err) {
@@ -57,6 +82,7 @@ export default function Editor() {
     if (!slug || !confirm(`Delete ${slug}? ${draft ? 'The draft pull request will be closed.' : 'This commits the deletion.'}`)) return;
     try {
       await api('DELETE', `${base}/${encodeURIComponent(slug)}`);
+      updateList((list) => list.filter((e) => e.slug !== slug));
       navigate(`/sites/${site.id}/c/${col}`);
     } catch (err) {
       setError((err as Error).message);
@@ -94,7 +120,10 @@ export default function Editor() {
       {error && <p className="error">{error}</p>}
       {data &&
         collection.fields.map((f) => (
-          <FieldInput key={f.name} site={site} field={f} value={data[f.name]} readOnly={readOnly} onChange={(v) => setData((d) => ({ ...d, [f.name]: v }))} />
+          <FieldInput key={f.name} site={site} field={f} value={data[f.name]} readOnly={readOnly} onChange={(v) => {
+              dirty.current = true;
+              setData((d) => ({ ...d, [f.name]: v }));
+            }} />
         ))}
       {!data && !error && <p className="muted">Loading…</p>}
     </form>
