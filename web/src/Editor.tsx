@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { api, can, Entry, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
-import { DraftPill, entriesKey, formatDate, Loading, Notice, useSite } from './Site';
+import { DraftPill, Empty, entriesKey, formatDate, Loading, Notice, useSite } from './Site';
+import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
 import { Chevron } from './App';
 
@@ -22,7 +23,7 @@ export default function Editor() {
   const edited = useRef(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'draft' | 'publish' | 'delete' | null>(null);
   const [dirty, setDirty] = useState(false);
   const [preview, setPreview] = useState(true);
   const form = useRef<HTMLFormElement>(null);
@@ -77,37 +78,45 @@ export default function Editor() {
     };
   }, [dirty]);
 
-  if (!collection) return <Loading>Unknown collection.</Loading>;
+  if (!collection) return <Empty>Unknown collection.</Empty>;
   const readOnly = !can(site.role, 'editor');
+  // On a review site only publishers put entries live, editors save drafts for them.
+  const canPublish = can(site.role, site.workflow === 'pr' ? 'publisher' : 'editor');
 
+  // The button that submitted the form decides: "publish" puts the entry live, anything else (or Cmd+S) saves a draft.
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    if (busy) return;
+    const publish = ((e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)?.name === 'publish';
+    setBusy(publish ? 'publish' : 'draft');
     setError('');
     try {
-      const res = await api<{ slug: string; draft: Pull | null }>(slug ? 'PUT' : 'POST', slug ? `${base}/${encodeURIComponent(slug)}` : base, { data });
+      const res = await api<{ slug: string; draft: Pull | null }>(slug ? 'PUT' : 'POST', slug ? `${base}/${encodeURIComponent(slug)}` : base, { data, publish });
       setDraft(res.draft);
       setDirty(false);
       const title = String(data?.[collection.identifier_field || 'title'] || res.slug);
       const entry: EntrySummary = { slug: res.slug, path: '', title, date: data?.date as string | undefined, data: data ?? {}, draft: res.draft ?? undefined };
       updateList((list) => (list.some((e) => e.slug === res.slug) ? list.map((e) => (e.slug === res.slug ? { ...e, ...entry, path: e.path } : e)) : [entry, ...list]));
-      setStatus(res.draft ? `Saved to pull request #${res.draft.number}` : `Committed to ${site.branch}`);
+      setStatus(publish ? `Published on ${site.branch}` : 'Draft saved');
       if (!slug) navigate(`/sites/${site.id}/c/${col}/e/${encodeURIComponent(res.slug)}`, { replace: true });
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const remove = async () => {
     if (!slug || !confirm(`Delete ${slug}? ${draft ? 'The draft pull request will be closed.' : 'This commits the deletion.'}`)) return;
+    setBusy('delete');
     try {
       await api('DELETE', `${base}/${encodeURIComponent(slug)}`);
       updateList((list) => list.filter((e) => e.slug !== slug));
       navigate(`/sites/${site.id}/c/${col}`);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -151,13 +160,18 @@ export default function Editor() {
           {preview ? 'Hide preview' : 'Show preview'}
         </button>
         {slug && can(site.role, 'publisher') && (
-          <button type="button" className="btn btn-danger" onClick={remove}>
-            Delete
+          <button type="button" className="btn btn-danger" onClick={remove} disabled={!!busy}>
+            <Pending on={busy === 'delete'}>{busy === 'delete' ? 'Deleting…' : 'Delete'}</Pending>
           </button>
         )}
         {!readOnly && (
-          <button className="btn btn-primary" disabled={busy || !data} title="Cmd+S / Ctrl+S">
-            {busy ? 'Saving…' : site.workflow === 'pr' ? 'Save draft' : 'Publish'}
+          <button name="draft" className="btn" disabled={!!busy || !data} title="Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)">
+            <Pending on={busy === 'draft'}>{busy === 'draft' ? 'Saving…' : 'Save draft'}</Pending>
+          </button>
+        )}
+        {canPublish && (
+          <button name="publish" className="btn btn-primary" disabled={!!busy || !data} title={draft ? `Merges pull request #${draft.number} into ${site.branch}` : `Commits to ${site.branch}`}>
+            <Pending on={busy === 'publish'}>{busy === 'publish' ? 'Publishing…' : 'Publish'}</Pending>
           </button>
         )}
       </header>
@@ -390,7 +404,7 @@ function ImageInput({ site, value, onChange, readOnly }: { site: SiteDetail; val
       <input className="field" value={value} onChange={(e) => onChange(e.target.value)} disabled={readOnly} placeholder="/images/cover.jpg" />
       {!readOnly && (
         <span className="btn relative self-start">
-          {busy ? 'Uploading…' : 'Upload an image'}
+          <Pending on={busy}>{busy ? 'Uploading…' : 'Upload an image'}</Pending>
           <input type="file" accept="image/*" disabled={busy} className="absolute inset-0 cursor-pointer opacity-0" onChange={(e) => upload(e.target.files?.[0])} />
         </span>
       )}
@@ -580,7 +594,12 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
                 <Icon d={icons.image} />
               </button>
               <input ref={fileInput} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && insertImage(e.target.files[0])} />
-              {uploading && <span className="ml-2 text-xs font-normal text-muted">Uploading image…</span>}
+              {uploading && (
+                <span className="ml-2 flex items-center gap-1.5 text-xs font-normal text-muted">
+                  <Spinner className="size-3 text-accent" />
+                  Uploading image…
+                </span>
+              )}
             </div>
           )}
           <span className="ml-auto pr-1 text-xs font-normal text-muted tabular-nums">{words} words</span>

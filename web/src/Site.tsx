@@ -4,6 +4,7 @@ import { api, can, EntrySummary, MediaFile, mediaSrc, Pull, SiteDetail, uploadMe
 import { Ctx, useCtx } from './App';
 
 import { useCached } from './cache';
+import { Pending, Spinner, useAction } from './ui';
 
 export const entriesKey = (siteId: number, col?: string) => `entries:${siteId}:${col}`;
 
@@ -15,7 +16,14 @@ export const Notice = ({ tone = 'danger', children }: { tone?: 'danger' | 'ok'; 
   <p className={`rounded-md border px-3 py-2 text-[13px] ${tone === 'ok' ? 'border-ok/30 bg-ok/5 text-ok' : 'border-danger/30 bg-danger/5 text-danger'}`}>{children}</p>
 );
 
-export const Loading = ({ children = 'Loading…' }: { children?: ReactNode }) => <p className="py-8 text-center text-[13px] text-muted">{children}</p>;
+export const Empty = ({ children }: { children: ReactNode }) => <p className="py-8 text-center text-[13px] text-muted">{children}</p>;
+
+export const Loading = ({ children = 'Loading…' }: { children?: ReactNode }) => (
+  <p className="flex items-center justify-center gap-2 py-8 text-[13px] text-muted" role="status">
+    <Spinner className="size-4 text-accent" />
+    {children}
+  </p>
+);
 
 const sideLink = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${isActive ? 'bg-surface font-medium text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`;
@@ -70,7 +78,7 @@ export function ContentLayout() {
             {site.repo}@{site.branch}
           </a>
           <br />
-          {site.workflow === 'pr' ? 'Changes go through pull requests.' : 'Changes are committed directly.'}
+          {site.workflow === 'pr' ? 'Only publishers can publish.' : 'Editors can publish.'}
         </p>
       </aside>
       <div className="min-w-0 flex-1">
@@ -85,7 +93,7 @@ export function SiteHome() {
   const site = useSite();
   if (!site.config) return null;
   const first = site.config.collections[0];
-  return first ? <Navigate to={`/sites/${site.id}/c/${first.name}`} replace /> : <Loading>sumigo.yml declares no folder collection.</Loading>;
+  return first ? <Navigate to={`/sites/${site.id}/c/${first.name}`} replace /> : <Empty>sumigo.yml declares no folder collection.</Empty>;
 }
 
 export const formatDate = (d?: string) => {
@@ -93,7 +101,7 @@ export const formatDate = (d?: string) => {
   return isNaN(t) ? (d ?? '') : new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-export const DraftPill = ({ pull }: { pull: Pull }) => <span className="pill bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-300">Draft #{pull.number}</span>;
+export const DraftPill = ({ pull }: { pull: Pull }) => <span className="pill bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/25">Draft #{pull.number}</span>;
 
 export function CollectionView() {
   const site = useSite();
@@ -108,7 +116,7 @@ export function CollectionView() {
     api<EntrySummary[]>('GET', `/sites/${site.id}/collections/${col}/entries`).then((e) => e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug)))),
   );
 
-  if (!collection) return <Loading>Unknown collection.</Loading>;
+  if (!collection) return <Empty>Unknown collection.</Empty>;
   const q = filter.toLowerCase();
   const shown = entries?.filter((e) => e.title.toLowerCase().includes(q) || e.slug.includes(q));
   return (
@@ -141,7 +149,7 @@ export function CollectionView() {
           ))}
         </ul>
       )}
-      {shown?.length === 0 && <Loading>{filter ? 'No entry matches this search.' : 'No entries yet.'}</Loading>}
+      {shown?.length === 0 && <Empty>{filter ? 'No entry matches this search.' : 'No entries yet.'}</Empty>}
     </>
   );
 }
@@ -158,25 +166,30 @@ export function PullsView() {
   };
   useEffect(load, [site.id]);
 
-  const merge = async (p: Pull) => {
-    if (!confirm(`Publish "${p.title}"? This squash-merges the pull request.`)) return;
-    try {
-      await api('POST', `/sites/${site.id}/pulls/${p.number}/merge`);
-      load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
+  const [run, pending] = useAction();
+  const merge = (p: Pull) =>
+    confirm(`Publish "${p.title}"? This squash-merges the pull request.`) &&
+    run(String(p.number), async () => {
+      try {
+        await api('POST', `/sites/${site.id}/pulls/${p.number}/merge`);
+        setPulls((list) => list?.filter((x) => x.number !== p.number) ?? null);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    });
 
   return (
     <>
-      <h1 className="mb-5">Workflow</h1>
+      <div className="mb-5">
+        <h1>Workflow</h1>
+        <p className="text-muted">Drafts waiting to be published. Each one is a pull request on GitHub.</p>
+      </div>
       {error && <Notice>{error}</Notice>}
       <ul className="panel divide-y divide-line">
         {pulls?.map((p) => {
           const [, col, slug] = p.head.ref.split('/');
           return (
-            <li key={p.number} className="flex flex-wrap items-center gap-3 px-4 py-3">
+            <li key={p.number} className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-opacity ${pending === String(p.number) ? 'opacity-60' : ''}`}>
               <div className="min-w-0 flex-1">
                 <Link to={`/sites/${site.id}/c/${col}/e/${encodeURIComponent(slug)}`} className="font-medium hover:text-accent">
                   {p.title}
@@ -188,9 +201,9 @@ export function PullsView() {
               <a className="btn" href={p.html_url} target="_blank" rel="noreferrer">
                 View on GitHub
               </a>
-              {can(site.role, 'publisher') && (
-                <button className="btn btn-primary" onClick={() => merge(p)}>
-                  Publish
+              {can(site.role, site.workflow === 'pr' ? 'publisher' : 'editor') && (
+                <button className="btn btn-primary" onClick={() => merge(p)} disabled={!!pending}>
+                  <Pending on={pending === String(p.number)}>{pending === String(p.number) ? 'Publishing…' : 'Publish'}</Pending>
                 </button>
               )}
             </li>
@@ -203,7 +216,7 @@ export function PullsView() {
         )}
         {pulls?.length === 0 && (
           <li>
-            <Loading>Nothing waiting for review.</Loading>
+            <Empty>No draft. Use Save draft in the editor to keep changes without publishing them.</Empty>
           </li>
         )}
       </ul>
@@ -220,6 +233,7 @@ export function MediaView() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState('');
+  const [onlyUnused, setOnlyUnused] = useState(false);
 
   const load = () => {
     api<MediaFile[]>('GET', `/sites/${site.id}/media`)
@@ -242,6 +256,19 @@ export function MediaView() {
     }
   };
 
+  const [run, deleting] = useAction();
+  const remove = (f: MediaFile) =>
+    confirm(`Delete ${f.name}?${f.used ? ' An entry still uses it, the image will break there.' : ''} This commits the deletion.`) &&
+    run(f.name, async () => {
+      setError('');
+      try {
+        await api('DELETE', `/sites/${site.id}/media/${encodeURIComponent(f.name)}`);
+        setFiles((list) => list?.filter((x) => x.name !== f.name) ?? null);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    });
+
   const copy = async (url: string) => {
     await navigator.clipboard.writeText(url);
     setCopied(url);
@@ -254,41 +281,72 @@ export function MediaView() {
           Media
           {files && <span className="ml-2 text-base font-normal text-muted">{files.length}</span>}
         </h1>
+        {files && files.length > 0 && (
+          <div role="tablist" className="flex rounded-md bg-surface p-0.5 ring-1 ring-line">
+            {[false, true].map((v) => (
+              <button
+                key={String(v)}
+                type="button"
+                role="tab"
+                aria-selected={onlyUnused === v}
+                onClick={() => setOnlyUnused(v)}
+                className={`rounded px-2.5 py-1 text-xs font-medium ${onlyUnused === v ? 'bg-accent-soft text-accent' : 'text-muted hover:text-ink'}`}
+              >
+                {v ? `Unused ${files.filter((f) => !f.used).length}` : 'All'}
+              </button>
+            ))}
+          </div>
+        )}
         {can(site.role, 'editor') && site.config?.media_folder && (
           <label className="btn btn-primary relative cursor-pointer">
-            {busy ? 'Uploading…' : 'Upload'}
+            <Pending on={busy}>{busy ? 'Uploading…' : 'Upload'}</Pending>
             <input type="file" multiple disabled={busy} className="absolute inset-0 cursor-pointer opacity-0" onChange={(e) => upload(e.target.files)} />
           </label>
         )}
       </div>
       {error && <Notice>{error}</Notice>}
-      {site.config && !site.config.media_folder && <Loading>Set media_folder in sumigo.yml to store media.</Loading>}
+      {site.config && !site.config.media_folder && <Empty>Set media_folder in sumigo.yml to store media.</Empty>}
       {!files && !error && <Loading />}
-      {files?.length === 0 && site.config?.media_folder && <Loading>No media yet. Upload images here, or paste them into an article.</Loading>}
+      {files?.length === 0 && site.config?.media_folder && <Empty>No media yet. Upload images here, or paste them into an article.</Empty>}
+      {onlyUnused && files?.every((f) => f.used) && <Empty>Every file is used by an entry.</Empty>}
       {files && files.length > 0 && (
         <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {files.map((f) => (
-            <li key={f.name} className="panel overflow-hidden">
-              <div className="grid aspect-[4/3] place-items-center bg-canvas">
-                {isImage(f.name) ? (
-                  <img src={mediaSrc(site, f.url)} alt="" loading="lazy" className="size-full object-cover" />
-                ) : (
-                  <span className="font-mono text-xs text-muted uppercase">{f.name.split('.').pop()}</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 border-t border-line px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium" title={f.name}>
-                    {f.name}
-                  </div>
-                  <div className="text-xs text-muted">{formatSize(f.size)}</div>
+          {files
+            .filter((f) => !onlyUnused || !f.used)
+            .map((f) => (
+              <li key={f.name} className={`panel overflow-hidden transition-opacity ${deleting === f.name ? 'pointer-events-none opacity-50' : ''}`}>
+                <div className="relative grid aspect-[4/3] place-items-center bg-canvas">
+                  {!f.used && (
+                    <span className="pill absolute top-2 left-2 bg-surface/90 text-muted ring-1 ring-line" title="No entry, published or draft, mentions this file. Templates are not checked.">
+                      Unused
+                    </span>
+                  )}
+                  {isImage(f.name) ? (
+                    <img src={mediaSrc(site, f.url)} alt="" loading="lazy" className="size-full object-cover" />
+                  ) : (
+                    <span className="font-mono text-xs text-muted uppercase">{f.name.split('.').pop()}</span>
+                  )}
                 </div>
-                <button type="button" className="text-xs font-medium text-accent hover:underline" onClick={() => copy(f.url)}>
-                  {copied === f.url ? 'Copied' : 'Copy URL'}
-                </button>
-              </div>
-            </li>
-          ))}
+                <div className="flex items-center gap-2 border-t border-line px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium" title={f.name}>
+                      {f.name}
+                    </div>
+                    <div className="text-xs text-muted">{formatSize(f.size)}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5">
+                    <button type="button" className="text-xs font-medium text-accent hover:underline" onClick={() => copy(f.url)}>
+                      {copied === f.url ? 'Copied' : 'Copy URL'}
+                    </button>
+                    {can(site.role, 'publisher') && (
+                      <button type="button" className="flex items-center gap-1 text-xs font-medium text-danger hover:underline disabled:no-underline" onClick={() => remove(f)} disabled={!!deleting}>
+                        <Pending on={deleting === f.name}>{deleting === f.name ? 'Deleting…' : 'Delete'}</Pending>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </li>
+            ))}
         </ul>
       )}
     </>

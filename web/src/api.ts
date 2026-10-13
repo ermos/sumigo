@@ -90,18 +90,36 @@ export class HttpError extends Error {
   }
 }
 
+// Writes in flight, shown as a progress bar: GitHub commits can take a few seconds.
+let writes = 0;
+const writeListeners = new Set<() => void>();
+const setWrites = (n: number) => {
+  writes = n;
+  writeListeners.forEach((l) => l());
+};
+export const pendingWrites = {
+  subscribe: (l: () => void) => (writeListeners.add(l), () => writeListeners.delete(l)),
+  get: () => writes,
+};
+
 export async function api<T = void>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
-  const res = await fetch('/api' + path, {
-    method,
-    headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
-    body: isForm ? body : body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new HttpError(res.status, err.error ?? res.statusText);
+  const write = method !== 'GET';
+  if (write) setWrites(writes + 1);
+  try {
+    const res = await fetch('/api' + path, {
+      method,
+      headers: body && !isForm ? { 'Content-Type': 'application/json' } : undefined,
+      body: isForm ? body : body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new HttpError(res.status, err.error ?? res.statusText);
+    }
+    return res.status === 204 ? (undefined as T) : await res.json();
+  } finally {
+    if (write) setWrites(writes - 1);
   }
-  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export const can = (role: Role | undefined, min: Role) => {
@@ -113,6 +131,7 @@ export interface MediaFile {
   name: string;
   size: number;
   url: string;
+  used: boolean;
 }
 
 export const uploadMedia = async (siteId: number, file: File) => {

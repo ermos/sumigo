@@ -48,7 +48,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.graphql = body.Variables
 		_, _ = w.Write([]byte(`{"data":{"repository":{
-			"dir":{"entries":[{"name":"old.md","type":"blob","object":{"text":"---\ntitle: Old post\n---\n"}},{"name":"img","type":"tree","object":{}}]},
+			"dir":{"entries":[{"name":"old.md","type":"blob","object":{"text":"---\ntitle: Old post\ncover: /static/img/cat.svg\n---\n"}},{"name":"img","type":"tree","object":{}}]},
 			"e0":{"text":"---\ntitle: Draft post\n---\n"}}}}`))
 	case r.Method == http.MethodGet && p == "/contents/sumigo.yml":
 		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(testConfig)), "sha": "c1"})
@@ -59,7 +59,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/git/ref/heads/"):
 		_, _ = w.Write([]byte(`{"object":{"sha":"base123"}}`))
 	case r.Method == http.MethodGet && p == "/contents/static/img":
-		_, _ = w.Write([]byte(`[{"name":"cat.svg","type":"file","size":3},{"name":"old","type":"dir"}]`))
+		_, _ = w.Write([]byte(`[{"name":"cat.svg","type":"file","size":3},{"name":"dog.png","type":"file","size":5},{"name":"old","type":"dir"}]`))
 	case r.Method == http.MethodGet && p == "/contents/static/img/cat.svg" && strings.Contains(r.Header.Get("Accept"), "raw"):
 		_, _ = w.Write([]byte("<svg/>"))
 	case r.Method == http.MethodGet:
@@ -157,6 +157,34 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	if gh.graphql["dir"] != "main:content/posts" || gh.graphql["e0"] != "cms/posts/hello-world:content/posts/hello-world.md" {
 		t.Fatalf("graphql vars = %v", gh.graphql)
 	}
+
+	// Publishing: editors cannot on a review site; on a direct site it merges the existing draft.
+	publish := func() *http.Response {
+		token, _ := st.CreateSession(editor.ID, time.Hour)
+		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/sites/1/collections/posts/entries/hello-world", strings.NewReader(`{"data":{"title":"Hello World"},"publish":true}`))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := publish(); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("editor published on a review site: %d", res.StatusCode)
+	}
+	site.Workflow = "direct"
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	before := len(gh.writes)
+	if res := publish(); res.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("publish failed: %d %s", res.StatusCode, b)
+	}
+	want = []string{"PUT /contents/content/posts/hello-world.md", "PUT /pulls/7/merge", "DELETE /git/refs/heads/cms/posts/hello-world"}
+	if got := gh.writes[before:]; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("publish writes = %v, want %v", got, want)
+	}
 }
 
 func TestMediaIsListedAndServedSafely(t *testing.T) {
@@ -198,7 +226,8 @@ func TestMediaIsListedAndServedSafely(t *testing.T) {
 		return res, string(b)
 	}
 
-	if _, body := get("/api/sites/1/media"); body != `[{"name":"cat.svg","size":3,"url":"/static/img/cat.svg"}]`+"\n" {
+	want := `[{"name":"cat.svg","size":3,"url":"/static/img/cat.svg","used":true},{"name":"dog.png","size":5,"url":"/static/img/dog.png","used":false}]` + "\n"
+	if _, body := get("/api/sites/1/media"); body != want {
 		t.Fatalf("list: %s", body)
 	}
 	res, body := get("/api/sites/1/media/cat.svg")
@@ -207,5 +236,11 @@ func TestMediaIsListedAndServedSafely(t *testing.T) {
 	}
 	if !strings.Contains(res.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatal("uploaded files must be served sandboxed")
+	}
+
+	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/sites/1/media/dog.png", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	if res, err := http.DefaultClient.Do(req); err != nil || res.StatusCode != http.StatusForbidden {
+		t.Fatalf("viewer must not delete media: %v %v", err, res.StatusCode)
 	}
 }

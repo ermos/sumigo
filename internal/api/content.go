@@ -118,9 +118,6 @@ func validSlug(s string) bool {
 
 // draft returns the open CMS pull request for an entry, or nil.
 func (sc *siteCtx) draft(ctx context.Context, branch string) (*github.Pull, error) {
-	if sc.site.Workflow != "pr" {
-		return nil, nil
-	}
 	pulls, err := sc.gh.ListPulls(ctx, branch)
 	if err != nil {
 		return nil, err
@@ -163,18 +160,15 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var pulls []github.Pull
 	var extra []string
 	prefix := branchPrefix + col.Name + "/"
-	if sc.site.Workflow == "pr" {
-		var err error
-		if pulls, err = sc.gh.ListPulls(r.Context(), prefix); err != nil {
-			fail(w, err)
-			return
-		}
-		for _, p := range pulls {
-			extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
-		}
+	pulls, err := sc.gh.ListPulls(r.Context(), prefix)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	for _, p := range pulls {
+		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
 	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, col.Folder, extra)
 	if err != nil {
@@ -244,6 +238,8 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Data map[string]any `json:"data"`
+		// Publish puts the entry live. Otherwise it is saved as a draft: a pull request left open.
+		Publish bool `json:"publish"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -253,6 +249,10 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusBadRequest, "field "+f.Name+" is required")
 			return
 		}
+	}
+	if in.Publish && sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
+		httpError(w, http.StatusForbidden, "only publishers can publish on this site, save a draft instead")
+		return
 	}
 	creating := r.Method == http.MethodPost
 	slug := r.PathValue("slug")
@@ -291,7 +291,10 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if sc.site.Workflow == "pr" {
+	// Drafts live on their own branch. Publishing an entry that has a draft goes through
+	// that branch too, so its pull request gets merged instead of left behind.
+	viaDraft := !in.Publish || pr != nil
+	if viaDraft {
 		branch = branchPrefix + col.Name + "/" + slug
 		if pr == nil {
 			base, err := sc.gh.BranchSHA(ctx, sc.site.Branch)
@@ -320,13 +323,22 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	if sc.site.Workflow == "pr" && pr == nil {
+	if viaDraft && pr == nil {
 		title := fmt.Sprintf("content(%s): %s %s (by %s)", col.Name, action, slug, sc.user.Name)
 		body := fmt.Sprintf("Opened from Sumigo by **%s** (%s).", sc.user.Name, sc.user.Email)
 		if pr, err = sc.gh.CreatePull(ctx, title, branch, sc.site.Branch, body); err != nil {
 			fail(w, err)
 			return
 		}
+	}
+	if in.Publish && viaDraft {
+		title := fmt.Sprintf("%s (#%d, published by %s)", pr.Title, pr.Number, sc.user.Name)
+		if err := sc.gh.MergePull(ctx, pr.Number, title); err != nil {
+			fail(w, err)
+			return
+		}
+		_ = sc.gh.DeleteBranch(ctx, branch)
+		pr = nil
 	}
 	writeJSON(w, map[string]any{"slug": slug, "draft": pr})
 }
@@ -429,9 +441,11 @@ type mediaFile struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
 	URL  string `json:"url"`
+	// Used is true when an entry, published or draft, mentions the file name.
+	Used bool `json:"used"`
 }
 
-// listMedia lists the files at the root of the site media folder.
+// listMedia lists the files at the root of the site media folder and flags the ones entries use.
 func (a *API) listMedia(w http.ResponseWriter, r *http.Request) {
 	sc, ok := a.site(w, r, store.RoleViewer)
 	if !ok {
@@ -453,37 +467,82 @@ func (a *API) listMedia(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	texts, err := sc.entryTexts(r.Context(), cfg)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	all := strings.Join(texts, "\n")
 	for _, f := range files {
 		if f.Type == "file" {
-			out = append(out, mediaFile{Name: f.Name, Size: f.Size, URL: path.Join(public, f.Name)})
+			out = append(out, mediaFile{Name: f.Name, Size: f.Size, URL: path.Join(public, f.Name), Used: strings.Contains(all, f.Name)})
 		}
 	}
 	writeJSON(w, out)
 }
 
-// getMedia streams one media file from GitHub, so images of private repos show in the CMS.
-func (a *API) getMedia(w http.ResponseWriter, r *http.Request) {
-	sc, ok := a.site(w, r, store.RoleViewer)
+// entryTexts returns the raw text of every entry of every collection, drafts included,
+// in one GraphQL call per collection.
+// ponytail: only entries are scanned, media used by templates or other repo files shows as unused.
+func (sc *siteCtx) entryTexts(ctx context.Context, cfg *content.Config) ([]string, error) {
+	pulls, err := sc.gh.ListPulls(ctx, branchPrefix)
+	if err != nil {
+		return nil, err
+	}
+	var texts []string
+	for i := range cfg.Collections {
+		col := &cfg.Collections[i]
+		prefix := branchPrefix + col.Name + "/"
+		var extra []string
+		for _, p := range pulls {
+			if strings.HasPrefix(p.Head.Ref, prefix) {
+				extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
+			}
+		}
+		blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, col.Folder, extra)
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range blobs {
+			texts = append(texts, b.Text)
+		}
+		texts = append(texts, drafts...)
+	}
+	return texts, nil
+}
+
+// mediaPath resolves the {name} of a media route to its path in the repo.
+func (a *API) mediaPath(w http.ResponseWriter, r *http.Request, min string) (*siteCtx, string, bool) {
+	sc, ok := a.site(w, r, min)
 	if !ok {
-		return
+		return nil, "", false
 	}
 	cfg, err := a.config(r.Context(), sc, false)
 	if err != nil {
 		httpError(w, http.StatusBadGateway, err.Error())
-		return
+		return nil, "", false
 	}
 	name := r.PathValue("name")
 	if cfg.MediaFolder == "" || name == "" || strings.HasPrefix(name, ".") {
 		httpError(w, http.StatusNotFound, "not found")
+		return nil, "", false
+	}
+	return sc, path.Join(cfg.MediaFolder, name), true
+}
+
+// getMedia streams one media file from GitHub, so images of private repos show in the CMS.
+func (a *API) getMedia(w http.ResponseWriter, r *http.Request) {
+	sc, file, ok := a.mediaPath(w, r, store.RoleViewer)
+	if !ok {
 		return
 	}
-	body, err := sc.gh.GetRaw(r.Context(), path.Join(cfg.MediaFolder, name), sc.site.Branch)
+	body, err := sc.gh.GetRaw(r.Context(), file, sc.site.Branch)
 	if err != nil {
 		fail(w, err)
 		return
 	}
 	defer func() { _ = body.Close() }()
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+	if ct := mime.TypeByExtension(path.Ext(file)); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
 	// Uploaded files are untrusted: never let them run script on the CMS origin (SVG, HTML).
@@ -491,6 +550,26 @@ func (a *API) getMedia(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	_, _ = io.Copy(w, body)
+}
+
+// deleteMedia removes a media file with a commit on the site branch.
+func (a *API) deleteMedia(w http.ResponseWriter, r *http.Request) {
+	sc, file, ok := a.mediaPath(w, r, store.RolePublisher)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	msg := fmt.Sprintf("content(media): delete %s\n\nDeleted by %s <%s> via Sumigo", path.Base(file), sc.user.Name, sc.user.Email)
+	if err := sc.gh.DeleteFile(ctx, file, sc.site.Branch, msg, sha, sc.author()); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func sanitizeExt(e string) string {
@@ -506,20 +585,21 @@ func (a *API) listPulls(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pulls := []github.Pull{}
-	if sc.site.Workflow == "pr" {
-		var err error
-		if pulls, err = sc.gh.ListPulls(r.Context(), branchPrefix); err != nil {
-			fail(w, err)
-			return
-		}
+	pulls, err := sc.gh.ListPulls(r.Context(), branchPrefix)
+	if err != nil {
+		fail(w, err)
+		return
 	}
 	writeJSON(w, pulls)
 }
 
 func (a *API) mergePull(w http.ResponseWriter, r *http.Request) {
-	sc, ok := a.site(w, r, store.RolePublisher)
+	sc, ok := a.site(w, r, store.RoleEditor)
 	if !ok {
+		return
+	}
+	if sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
+		httpError(w, http.StatusForbidden, "only publishers can publish on this site")
 		return
 	}
 	n, _ := strconv.Atoi(r.PathValue("number"))

@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
+import { Pending, ProgressBar, useAction } from './ui';
 import { CollectionView, ContentLayout, MediaView, PullsView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 import { SiteForm, SiteMembers, Users } from './Admin';
@@ -37,30 +38,33 @@ export default function App() {
   if (me === null) return <Login onLogin={setMe} />;
 
   return (
-    <Routes>
-      <Route element={<Layout me={me} sites={sites} reloadSites={reloadSites} onLogout={() => setMe(null)} />}>
-        <Route index element={<Home />} />
-        <Route path="sites/:siteId" element={<SiteLayout />}>
-          <Route element={<ContentLayout />}>
-            <Route index element={<SiteHome />} />
-            <Route path="c/:col" element={<CollectionView />} />
+    <>
+      <ProgressBar />
+      <Routes>
+        <Route element={<Layout me={me} sites={sites} reloadSites={reloadSites} onLogout={() => setMe(null)} />}>
+          <Route index element={<Home />} />
+          <Route path="sites/:siteId" element={<SiteLayout />}>
+            <Route element={<ContentLayout />}>
+              <Route index element={<SiteHome />} />
+              <Route path="c/:col" element={<CollectionView />} />
+            </Route>
+            <Route path="workflow" element={<PullsView />} />
+            <Route path="media" element={<MediaView />} />
+            <Route path="c/:col/new" element={<Editor />} />
+            <Route path="c/:col/e/:slug" element={<Editor />} />
           </Route>
-          <Route path="workflow" element={<PullsView />} />
-          <Route path="media" element={<MediaView />} />
-          <Route path="c/:col/new" element={<Editor />} />
-          <Route path="c/:col/e/:slug" element={<Editor />} />
+          {me.is_admin && (
+            <>
+              <Route path="admin/users" element={<Users />} />
+              <Route path="admin/sites/new" element={<SiteForm />} />
+              <Route path="admin/sites/:siteId" element={<SiteForm />} />
+              <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
+            </>
+          )}
+          <Route path="*" element={<p className="text-muted">Page not found.</p>} />
         </Route>
-        {me.is_admin && (
-          <>
-            <Route path="admin/users" element={<Users />} />
-            <Route path="admin/sites/new" element={<SiteForm />} />
-            <Route path="admin/sites/:siteId" element={<SiteForm />} />
-            <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
-          </>
-        )}
-        <Route path="*" element={<p className="text-muted">Page not found.</p>} />
-      </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }
 
@@ -111,11 +115,9 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
               <Link to={base} className={topLink(pathname === base || pathname.startsWith(`${base}/c/`))}>
                 Content
               </Link>
-              {current.workflow === 'pr' && (
-                <Link to={`${base}/workflow`} className={topLink(pathname === `${base}/workflow`)}>
-                  Workflow
-                </Link>
-              )}
+              <Link to={`${base}/workflow`} className={topLink(pathname === `${base}/workflow`)}>
+                Workflow
+              </Link>
               <Link to={`${base}/media`} className={topLink(pathname === `${base}/media`)}>
                 Media
               </Link>
@@ -227,6 +229,7 @@ function Home() {
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [run, pending] = useAction();
   const [error, setError] = useState('');
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -238,7 +241,7 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
   };
   return (
     <div className="grid min-h-screen place-items-center px-4">
-      <form className="w-full max-w-sm" onSubmit={submit}>
+      <form className="w-full max-w-sm" onSubmit={(e) => run('login', () => submit(e))}>
         <div className="mb-6 flex items-center gap-2 text-lg font-semibold tracking-tight">
           <span className="size-3 rounded-full bg-accent" />
           Sumigo
@@ -257,7 +260,9 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
             <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           </label>
           {error && <p className="text-[13px] text-danger">{error}</p>}
-          <button className="btn btn-primary py-2">Log in</button>
+          <button className="btn btn-primary py-2" disabled={!!pending}>
+            <Pending on={!!pending}>{pending ? 'Logging in…' : 'Log in'}</Pending>
+          </button>
         </div>
       </form>
     </div>

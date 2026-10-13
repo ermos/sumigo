@@ -5,9 +5,10 @@ Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages
 - **No "Login with GitHub"**: each site has a GitHub token (encrypted at rest). Users log in to Sumigo with their own account.
 - **Attribution**: commits are authored with the CMS user's name and email (the token owner stays the committer), and PR titles and bodies name the author.
 - **Access control**: per-site roles `viewer` < `editor` < `publisher`, plus global admins.
-- **Workflows** per site:
-  - `direct`: every save commits to the branch.
-  - `pr`: saves go to `cms/<collection>/<slug>` and open a pull request. Publishers merge it (squash) from the UI.
+- **Drafts**: "Save draft" keeps changes on `cms/<collection>/<slug>` in an open pull request, "Publish" puts them live (squash-merging the draft if there is one). Drafts are listed in the Workflow page.
+- **Publishing** per site:
+  - `direct` (open): editors and publishers can publish.
+  - `pr` (review): editors only save drafts, publishers publish them.
 - The content model lives **in the target repo**, in a Decap CMS style `sumigo.yml` at the repository root ([reference](docs/sumigo-yml.md)). Entries are Markdown with YAML front matter.
 - Listing a collection reads every entry (and every PR draft) in **one GraphQL call**, so the list shows titles and dates.
 
