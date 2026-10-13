@@ -82,7 +82,10 @@ export interface Access {
 }
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -104,4 +107,25 @@ export async function api<T = void>(method: string, path: string, body?: unknown
 export const can = (role: Role | undefined, min: Role) => {
   const rank = { viewer: 1, editor: 2, publisher: 3 };
   return !!role && rank[role] >= rank[min];
+};
+
+export interface MediaFile {
+  name: string;
+  size: number;
+  url: string;
+}
+
+export const uploadMedia = async (siteId: number, file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return (await api<{ url: string }>('POST', `/sites/${siteId}/media`, form)).url;
+};
+
+// mediaSrc maps a site URL from the media folder (e.g. /images/cat.png) to the CMS proxy, so it shows even for private repos.
+export const mediaSrc = (site: { id: number; config: Config | null }, url: string) => {
+  const cfg = site.config;
+  const pub = '/' + (cfg?.public_folder || cfg?.media_folder || '').replace(/^\/+|\/+$/g, '');
+  if (!cfg?.media_folder || !url.startsWith(pub + '/')) return url;
+  const name = url.slice(pub.length + 1);
+  return name.includes('/') ? url : `/api/sites/${site.id}/media/${encodeURIComponent(name)}`;
 };

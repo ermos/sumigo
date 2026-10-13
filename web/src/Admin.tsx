@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Access, api, Role, Site, User } from './api';
 import { useCtx } from './App';
+import { Notice } from './Site';
 
 const emptySite: Site = { id: 0, name: '', repo: '', branch: 'main', workflow: 'direct', has_token: false };
 
@@ -68,118 +69,78 @@ export function SiteForm() {
   };
 
   return (
-    <>
-      <h1>{site.id ? `Settings · ${site.name}` : 'New site'}</h1>
-      <form className="card form" onSubmit={save}>
-        <label>
-          Name
-          <input value={site.name} onChange={set('name')} required />
-        </label>
-        <div className="row">
-          <label>
-            Repository (owner/name)
-            <input value={site.repo} onChange={set('repo')} placeholder="acme/blog" required />
-          </label>
-          <label>
-            Branch
-            <input value={site.branch} onChange={set('branch')} required />
-          </label>
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6">
+        {site.id > 0 && (
+          <Link to={`/sites/${site.id}`} className="text-[13px] text-muted hover:text-accent">
+            Back to {site.name}
+          </Link>
+        )}
+        <h1>{site.id ? 'Site settings' : 'Add a site'}</h1>
+        {!site.id && <p className="text-muted">Connect a GitHub repository that contains a sumigo.yml.</p>}
+      </div>
+      <form className="panel" onSubmit={save}>
+        <div className="border-b border-line px-6 py-4">
+          <h2>Repository</h2>
+          <p className="text-[13px] text-muted">Where the content lives and how changes reach it.</p>
         </div>
-        <label>
-          GitHub token {site.has_token && <span className="muted small">(set, leave empty to keep)</span>}
-          <input type="password" value={site.token ?? ''} onChange={set('token')} placeholder="github_pat_…" autoComplete="off" />
-          <span className="muted small">
-            Fine-grained token with Contents and Pull requests read/write on this repository.{' '}
-            {tokenURL(site.repo) ? (
-              <>
-                <a href={tokenURL(site.repo)} target="_blank" rel="noreferrer">
-                  Create it on GitHub
-                </a>{' '}
-                (permissions are prefilled, select only <strong>{site.repo}</strong> under "Repository access").
-              </>
-            ) : (
-              'Fill the repository to get a prefilled GitHub link.'
-            )}
-          </span>
-        </label>
-        <label>
-          Workflow
-          <select value={site.workflow} onChange={set('workflow')}>
-            <option value="direct">Direct: every save commits to the branch</option>
-            <option value="pr">Review: saves open a pull request, publishers merge it</option>
-          </select>
-        </label>
-        {error && <p className="error">{error}</p>}
-        {status && <p className="ok">{status}</p>}
-        <div className="actions">
+        <div className="flex flex-col gap-5 p-6">
+          <label className="label">
+            Name
+            <input className="field" value={site.name} onChange={set('name')} required />
+          </label>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="label">
+              Repository
+              <input className="field font-mono" value={site.repo} onChange={set('repo')} placeholder="acme/blog" required />
+            </label>
+            <label className="label">
+              Branch
+              <input className="field font-mono" value={site.branch} onChange={set('branch')} required />
+            </label>
+          </div>
+          <label className="label">
+            <span>GitHub token {site.has_token && <span className="font-normal text-muted">(already set, leave empty to keep it)</span>}</span>
+            <input className="field font-mono" type="password" value={site.token ?? ''} onChange={set('token')} placeholder="github_pat_…" autoComplete="off" />
+            <span className="text-xs font-normal text-muted">
+              Fine-grained token with Contents and Pull requests read/write on this repository.{' '}
+              {tokenURL(site.repo) ? (
+                <>
+                  <a href={tokenURL(site.repo)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    Create it on GitHub
+                  </a>{' '}
+                  (permissions are prefilled, select only <strong className="font-medium text-ink">{site.repo}</strong> under "Repository access").
+                </>
+              ) : (
+                'Fill the repository to get a prefilled GitHub link.'
+              )}
+            </span>
+          </label>
+          <label className="label">
+            Workflow
+            <select className="field" value={site.workflow} onChange={set('workflow')}>
+              <option value="direct">Direct: every save commits to the branch</option>
+              <option value="pr">Review: saves open a pull request, publishers merge it</option>
+            </select>
+          </label>
+          {error && <Notice>{error}</Notice>}
+          {status && <Notice tone="ok">{status}</Notice>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-line bg-canvas/60 px-6 py-3">
           {site.id > 0 && (
             <>
-              <button type="button" className="danger" onClick={remove}>
-                Delete
+              <button type="button" className="btn btn-danger" onClick={remove}>
+                Delete site
               </button>
-              <button type="button" onClick={check}>
+              <span className="flex-1" />
+              <button type="button" className="btn" onClick={check}>
                 Test GitHub access
               </button>
             </>
           )}
-          <button className="primary">Save</button>
+          <button className="btn btn-primary ml-auto">{site.id ? 'Save changes' : 'Add site'}</button>
         </div>
       </form>
-      {site.id > 0 && <AccessEditor siteId={site.id} />}
-    </>
-  );
-}
-
-function AccessEditor({ siteId }: { siteId: number }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [access, setAccess] = useState<Access[]>([]);
-  const [status, setStatus] = useState('');
-
-  useEffect(() => {
-    api<User[]>('GET', '/users').then(setUsers);
-    api<Access[]>('GET', `/sites/${siteId}/access`).then(setAccess);
-  }, [siteId]);
-
-  const roleOf = (id: number) => access.find((a) => a.user_id === id)?.role ?? '';
-  const setRole = (id: number, role: string) => {
-    setStatus('');
-    setAccess((list) => [...list.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role: role as Role }] : [])]);
-  };
-  const save = async () => {
-    await api('PUT', `/sites/${siteId}/access`, access);
-    setStatus('Access saved');
-  };
-
-  return (
-    <div className="card">
-      <h2>Access</h2>
-      <p className="muted small">Viewer reads, editor writes (or opens PRs in review workflow), publisher also merges and deletes. Admins have full access everywhere.</p>
-      <table>
-        <tbody>
-          {users
-            .filter((u) => !u.is_admin)
-            .map((u) => (
-              <tr key={u.id}>
-                <td>{u.name}</td>
-                <td className="muted">{u.email}</td>
-                <td>
-                  <select value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)}>
-                    <option value="">No access</option>
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
-                    <option value="publisher">Publisher</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-        </tbody>
-      </table>
-      <div className="actions">
-        {status && <span className="ok small">{status}</span>}
-        <button className="primary" onClick={save}>
-          Save access
-        </button>
-      </div>
     </div>
   );
 }
@@ -208,6 +169,11 @@ export function Users() {
     }
   };
 
+  const edit = (u: User | null) => {
+    setError('');
+    setEditing(u ? { ...u, password: '' } : { id: 0, email: '', name: '', is_admin: false, password: '' });
+  };
+
   const remove = async (u: User) => {
     if (!confirm(`Delete ${u.name}?`)) return;
     await api('DELETE', `/users/${u.id}`);
@@ -215,62 +181,166 @@ export function Users() {
   };
 
   return (
-    <>
-      <div className="toolbar">
-        <h1>Users</h1>
-        <button className="primary" onClick={() => setEditing({ id: 0, email: '', name: '', is_admin: false, password: '' })}>
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h1>Users</h1>
+          <p className="text-muted">Their name and email sign the commits they make.</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => edit(null)}>
           New user
         </button>
       </div>
       {editing && (
-        <form className="card form" onSubmit={save}>
-          <div className="row">
-            <label>
+        <form className="panel mb-6 flex flex-col gap-5 p-6" onSubmit={save}>
+          <h2>{editing.id ? `Edit ${editing.name}` : 'New user'}</h2>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="label">
               Name
-              <input value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} required />
+              <input className="field" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} required />
             </label>
-            <label>
-              Email (used as commit author)
-              <input type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required />
+            <label className="label">
+              Email
+              <input className="field" type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required />
             </label>
           </div>
-          <label>
-            Password {editing.id > 0 && <span className="muted small">(leave empty to keep)</span>}
-            <input type="password" value={editing.password} minLength={8} required={!editing.id} onChange={(e) => setEditing({ ...editing, password: e.target.value })} autoComplete="new-password" />
+          <label className="label">
+            <span>Password {editing.id > 0 && <span className="font-normal text-muted">(leave empty to keep it)</span>}</span>
+            <input
+              className="field"
+              type="password"
+              value={editing.password}
+              minLength={8}
+              required={!editing.id}
+              onChange={(e) => setEditing({ ...editing, password: e.target.value })}
+              autoComplete="new-password"
+            />
           </label>
-          <label className="check">
-            <input type="checkbox" checked={editing.is_admin} onChange={(e) => setEditing({ ...editing, is_admin: e.target.checked })} /> Administrator
+          <label className="flex items-center gap-2 text-[13px] font-medium">
+            <input className="size-4 accent-accent" type="checkbox" checked={editing.is_admin} onChange={(e) => setEditing({ ...editing, is_admin: e.target.checked })} /> Administrator{' '}
+            <span className="font-normal text-muted">(manages users and sites, sees every site)</span>
           </label>
-          {error && <p className="error">{error}</p>}
-          <div className="actions">
-            <button type="button" onClick={() => setEditing(null)}>
+          {error && <Notice>{error}</Notice>}
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" onClick={() => setEditing(null)}>
               Cancel
             </button>
-            <button className="primary">Save</button>
+            <button className="btn btn-primary">Save user</button>
           </div>
         </form>
       )}
-      <table className="card">
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.name}</td>
-              <td className="muted">{u.email}</td>
-              <td>{u.is_admin && <span className="badge">admin</span>}</td>
-              <td className="actions">
-                <button className="link" onClick={() => setEditing({ ...u, password: '' })}>
-                  Edit
-                </button>
-                {u.id !== me.id && (
-                  <button className="link danger" onClick={() => remove(u)}>
-                    Delete
-                  </button>
-                )}
-              </td>
+      <div className="panel overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="border-b border-line bg-canvas/60 text-xs text-muted">
+            <tr>
+              <th className="px-4 py-2 font-medium">Name</th>
+              <th className="hidden px-4 py-2 font-medium sm:table-cell">Email</th>
+              <th className="px-4 py-2 font-medium">Role</th>
+              <th />
             </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td className="px-4 py-3 font-medium">{u.name}</td>
+                <td className="hidden px-4 py-3 text-muted sm:table-cell">{u.email}</td>
+                <td className="px-4 py-3">{u.is_admin ? <span className="pill bg-accent-soft text-accent">Admin</span> : <span className="text-muted">Member</span>}</td>
+                <td className="space-x-4 px-4 py-3 text-right text-[13px] font-medium">
+                  <button className="text-accent hover:underline" onClick={() => edit(u)}>
+                    Edit
+                  </button>
+                  {u.id !== me.id && (
+                    <button className="text-danger hover:underline" onClick={() => remove(u)}>
+                      Delete
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// SiteMembers sets who can open a site and with which role. Admins are left out: they see every site.
+export function SiteMembers() {
+  const { siteId } = useParams();
+  const { sites } = useCtx();
+  const site = sites.find((s) => String(s.id) === siteId);
+  const [users, setUsers] = useState<User[]>([]);
+  const [access, setAccess] = useState<Access[]>([]);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api<User[]>('GET', '/users').then(setUsers);
+    api<Access[]>('GET', `/sites/${siteId}/access`).then(setAccess);
+  }, [siteId]);
+
+  const roleOf = (id: number) => access.find((a) => a.user_id === id)?.role ?? '';
+  const setRole = (id: number, role: string) => {
+    setStatus('');
+    setAccess((list) => [...list.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role: role as Role }] : [])]);
+  };
+  const save = async () => {
+    setError('');
+    try {
+      await api('PUT', `/sites/${siteId}/access`, access);
+      setStatus('Members saved');
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const members = users.filter((u) => !u.is_admin);
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6">
+        <Link to={`/sites/${siteId}`} className="text-[13px] text-muted hover:text-accent">
+          Back to {site?.name}
+        </Link>
+        <h1>Members</h1>
+        <p className="text-muted">
+          Choose who can open this site. Viewers read, editors write (or open pull requests in the review workflow), publishers also merge and delete. Admins see every site.
+        </p>
+      </div>
+      <div className="panel">
+        <ul className="divide-y divide-line">
+          {members.map((u) => (
+            <li key={u.id} className="flex items-center gap-3 px-5 py-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-canvas text-xs font-semibold text-muted">{u.name.charAt(0).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium">{u.name}</div>
+                <div className="truncate text-xs text-muted">{u.email}</div>
+              </div>
+              <select className="field w-40 py-1" value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)} aria-label={`Role of ${u.name}`}>
+                <option value="">No access</option>
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+                <option value="publisher">Publisher</option>
+              </select>
+            </li>
           ))}
-        </tbody>
-      </table>
-    </>
+          {members.length === 0 && (
+            <li className="px-5 py-6 text-center text-[13px] text-muted">
+              No user to add yet.{' '}
+              <Link to="/admin/users" className="text-accent hover:underline">
+                Create a user
+              </Link>{' '}
+              first.
+            </li>
+          )}
+        </ul>
+        <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
+          {error && <span className="text-[13px] text-danger">{error}</span>}
+          {status && <span className="text-[13px] text-ok">{status}</span>}
+          <button className="btn btn-primary" onClick={save}>
+            Save members
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

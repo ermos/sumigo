@@ -55,27 +55,37 @@ func (c *Client) do(ctx context.Context, method, path string, in, out any) error
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/repos/"+c.Repo+path, body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	res, err := c.HTTP.Do(req)
+	res, err := c.send(ctx, method, path, body, "application/vnd.github+json")
 	if err != nil {
 		return err
 	}
 	defer func() { _ = res.Body.Close() }()
-	if res.StatusCode >= 300 {
-		var e struct{ Message string }
-		_ = json.NewDecoder(res.Body).Decode(&e)
-		return &Error{Status: res.StatusCode, Message: e.Message}
-	}
 	if out == nil {
 		return nil
 	}
 	return json.NewDecoder(res.Body).Decode(out)
+}
+
+// send performs an API call and turns non-2xx answers into *Error.
+func (c *Client) send(ctx context.Context, method, path string, body io.Reader, accept string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/repos/"+c.Repo+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", accept)
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= 300 {
+		defer func() { _ = res.Body.Close() }()
+		var e struct{ Message string }
+		_ = json.NewDecoder(res.Body).Decode(&e)
+		return nil, &Error{Status: res.StatusCode, Message: e.Message}
+	}
+	return res, nil
 }
 
 func escapePath(p string) string {
@@ -91,6 +101,7 @@ type File struct {
 	Path    string `json:"path"`
 	SHA     string `json:"sha"`
 	Type    string `json:"type"`
+	Size    int64  `json:"size"`
 	Content string `json:"content"`
 }
 
@@ -117,6 +128,15 @@ func (c *Client) GetFile(ctx context.Context, path, ref string) ([]byte, string,
 	}
 	content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(f.Content, "\n", ""))
 	return content, f.SHA, err
+}
+
+// GetRaw streams a file body. Unlike GetFile it works past GitHub's 1MB contents limit.
+func (c *Client) GetRaw(ctx context.Context, path, ref string) (io.ReadCloser, error) {
+	res, err := c.send(ctx, http.MethodGet, "/contents/"+escapePath(path)+"?ref="+url.QueryEscape(ref), nil, "application/vnd.github.raw+json")
+	if err != nil {
+		return nil, err
+	}
+	return res.Body, nil
 }
 
 // PutFile creates (sha empty) or updates a file in a single commit on branch.
