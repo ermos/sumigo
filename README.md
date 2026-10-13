@@ -25,7 +25,7 @@ Dev: `go run ./cmd/sumigo` and `cd web && npm run dev` (Vite proxies `/api` to `
 
 ## GitHub token
 
-Use a fine-grained token scoped to the site repository, with **Contents: read/write** and **Pull requests: read/write**.
+Use a fine-grained token scoped to the site repository, with **Contents: read/write** and **Pull requests: read/write**. The site settings page has a "Create it on GitHub" link that opens the token form with the owner and permissions prefilled, so you only pick the repository.
 
 ## `sumigo.yml`
 

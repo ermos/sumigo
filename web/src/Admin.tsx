@@ -5,6 +5,22 @@ import { useCtx } from './App';
 
 const emptySite: Site = { id: 0, name: '', repo: '', branch: 'main', workflow: 'direct', has_token: false };
 
+// tokenURL opens GitHub's fine-grained token form with owner and permissions prefilled.
+// GitHub does not allow prefilling the repository, the user picks it in the form.
+function tokenURL(repo: string) {
+  const [owner, name] = repo.trim().split('/');
+  if (!owner || !name) return '';
+  const params = new URLSearchParams({
+    name: `Sumigo ${repo.trim()}`.slice(0, 40),
+    description: `Sumigo CMS access to ${repo.trim()}`,
+    target_name: owner,
+    expires_in: '366',
+    contents: 'write',
+    pull_requests: 'write',
+  });
+  return `https://github.com/settings/personal-access-tokens/new?${params}`;
+}
+
 export function SiteForm() {
   const { siteId } = useParams();
   const { sites, reloadSites } = useCtx();
@@ -72,7 +88,19 @@ export function SiteForm() {
         <label>
           GitHub token {site.has_token && <span className="muted small">(set, leave empty to keep)</span>}
           <input type="password" value={site.token ?? ''} onChange={set('token')} placeholder="github_pat_…" autoComplete="off" />
-          <span className="muted small">Fine-grained token with Contents and Pull requests read/write on this repository.</span>
+          <span className="muted small">
+            Fine-grained token with Contents and Pull requests read/write on this repository.{' '}
+            {tokenURL(site.repo) ? (
+              <>
+                <a href={tokenURL(site.repo)} target="_blank" rel="noreferrer">
+                  Create it on GitHub
+                </a>{' '}
+                (permissions are prefilled, select only <strong>{site.repo}</strong> under "Repository access").
+              </>
+            ) : (
+              'Fill the repository to get a prefilled GitHub link.'
+            )}
+          </span>
         </label>
         <label>
           Workflow
