@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Access, api, Role, Site, User } from './api';
 import { useCtx } from './App';
+import { Pending, useAction } from './ui';
 import { Notice } from './Site';
 
 const emptySite: Site = { id: 0, name: '', repo: '', branch: 'main', workflow: 'direct', has_token: false };
@@ -25,6 +26,7 @@ function tokenURL(repo: string) {
 export function SiteForm() {
   const { siteId } = useParams();
   const { sites, reloadSites } = useCtx();
+  const [run, pending] = useAction();
   const navigate = useNavigate();
   const [site, setSite] = useState<Site>(emptySite);
   const [error, setError] = useState('');
@@ -79,7 +81,7 @@ export function SiteForm() {
         <h1>{site.id ? 'Site settings' : 'Add a site'}</h1>
         {!site.id && <p className="text-muted">Connect a GitHub repository that contains a sumigo.yml.</p>}
       </div>
-      <form className="panel" onSubmit={save}>
+      <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
         <div className="border-b border-line px-6 py-4">
           <h2>Repository</h2>
           <p className="text-[13px] text-muted">Where the content lives and how changes reach it.</p>
@@ -117,10 +119,10 @@ export function SiteForm() {
             </span>
           </label>
           <label className="label">
-            Workflow
+            Publishing
             <select className="field" value={site.workflow} onChange={set('workflow')}>
-              <option value="direct">Direct: every save commits to the branch</option>
-              <option value="pr">Review: saves open a pull request, publishers merge it</option>
+              <option value="direct">Open: editors can publish, or save drafts</option>
+              <option value="pr">Review: editors save drafts, only publishers publish them</option>
             </select>
           </label>
           {error && <Notice>{error}</Notice>}
@@ -129,16 +131,18 @@ export function SiteForm() {
         <div className="flex flex-wrap items-center gap-2 border-t border-line bg-canvas/60 px-6 py-3">
           {site.id > 0 && (
             <>
-              <button type="button" className="btn btn-danger" onClick={remove}>
-                Delete site
+              <button type="button" className="btn btn-danger" onClick={() => run('delete', remove)} disabled={!!pending}>
+                <Pending on={pending === 'delete'}>{pending === 'delete' ? 'Deleting…' : 'Delete site'}</Pending>
               </button>
               <span className="flex-1" />
-              <button type="button" className="btn" onClick={check}>
-                Test GitHub access
+              <button type="button" className="btn" onClick={() => run('check', check)} disabled={!!pending}>
+                <Pending on={pending === 'check'}>{pending === 'check' ? 'Testing…' : 'Test GitHub access'}</Pending>
               </button>
             </>
           )}
-          <button className="btn btn-primary ml-auto">{site.id ? 'Save changes' : 'Add site'}</button>
+          <button className="btn btn-primary ml-auto" disabled={!!pending}>
+            <Pending on={pending === 'save'}>{pending === 'save' ? 'Saving…' : site.id ? 'Save changes' : 'Add site'}</Pending>
+          </button>
         </div>
       </form>
     </div>
@@ -147,6 +151,7 @@ export function SiteForm() {
 
 export function Users() {
   const { me } = useCtx();
+  const [run, pending] = useAction();
   const [users, setUsers] = useState<User[]>([]);
   const [editing, setEditing] = useState<(User & { password: string }) | null>(null);
   const [error, setError] = useState('');
@@ -192,7 +197,7 @@ export function Users() {
         </button>
       </div>
       {editing && (
-        <form className="panel mb-6 flex flex-col gap-5 p-6" onSubmit={save}>
+        <form className="panel mb-6 flex flex-col gap-5 p-6" onSubmit={(e) => run('save', () => save(e))}>
           <h2>{editing.id ? `Edit ${editing.name}` : 'New user'}</h2>
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="label">
@@ -225,7 +230,9 @@ export function Users() {
             <button type="button" className="btn" onClick={() => setEditing(null)}>
               Cancel
             </button>
-            <button className="btn btn-primary">Save user</button>
+            <button className="btn btn-primary" disabled={!!pending}>
+              <Pending on={pending === 'save'}>{pending === 'save' ? 'Saving…' : 'Save user'}</Pending>
+            </button>
           </div>
         </form>
       )}
@@ -250,8 +257,8 @@ export function Users() {
                     Edit
                   </button>
                   {u.id !== me.id && (
-                    <button className="text-danger hover:underline" onClick={() => remove(u)}>
-                      Delete
+                    <button className="inline-flex items-center gap-1 text-danger hover:underline" onClick={() => run(`del${u.id}`, () => remove(u))} disabled={!!pending}>
+                      <Pending on={pending === `del${u.id}`}>{pending === `del${u.id}` ? 'Deleting…' : 'Delete'}</Pending>
                     </button>
                   )}
                 </td>
@@ -268,6 +275,7 @@ export function Users() {
 export function SiteMembers() {
   const { siteId } = useParams();
   const { sites } = useCtx();
+  const [run, pending] = useAction();
   const site = sites.find((s) => String(s.id) === siteId);
   const [users, setUsers] = useState<User[]>([]);
   const [access, setAccess] = useState<Access[]>([]);
@@ -303,7 +311,7 @@ export function SiteMembers() {
         </Link>
         <h1>Members</h1>
         <p className="text-muted">
-          Choose who can open this site. Viewers read, editors write (or open pull requests in the review workflow), publishers also merge and delete. Admins see every site.
+          Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.
         </p>
       </div>
       <div className="panel">
@@ -336,8 +344,8 @@ export function SiteMembers() {
         <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
           {error && <span className="text-[13px] text-danger">{error}</span>}
           {status && <span className="text-[13px] text-ok">{status}</span>}
-          <button className="btn btn-primary" onClick={save}>
-            Save members
+          <button className="btn btn-primary" onClick={() => run('save', save)} disabled={!!pending}>
+            <Pending on={!!pending}>{pending ? 'Saving…' : 'Save members'}</Pending>
           </button>
         </div>
       </div>

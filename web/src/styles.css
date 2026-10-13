@@ -4,31 +4,15 @@
 @theme {
   --font-sans: 'Instrument Sans Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-  --color-canvas: #f6f8fb;
+  --color-canvas: #f8f7fc;
   --color-surface: #ffffff;
-  --color-ink: #0e2236;
-  --color-muted: #5a6b80;
-  --color-line: #e2e7ee;
-  --color-accent: #3b45d9;
-  --color-accent-soft: #eef0ff;
+  --color-ink: #1d1830;
+  --color-muted: #6a6580;
+  --color-line: #e8e5f1;
+  --color-accent: #7c2bf5;
+  --color-accent-soft: #f3ecff;
   --color-danger: #c2362b;
   --color-ok: #127a4a;
-}
-
-/* Dark mode only swaps the tokens, every utility follows. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-canvas: #0d1520;
-    --color-surface: #131d2a;
-    --color-ink: #e6ecf3;
-    --color-muted: #8c9aad;
-    --color-line: #233042;
-    --color-accent: #8c95ff;
-    --color-accent-soft: #1e2550;
-    --color-danger: #f08378;
-    --color-ok: #5bd19a;
-    color-scheme: dark;
-  }
 }
 
 @layer base {
@@ -57,7 +41,7 @@
     @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] font-medium whitespace-nowrap text-ink shadow-xs transition-colors hover:bg-canvas disabled:cursor-default disabled:opacity-60;
   }
   .btn-primary {
-    @apply border-accent bg-accent text-white hover:bg-accent/90 dark:text-canvas;
+    @apply border-accent bg-accent text-white hover:bg-accent/90;
   }
   .btn-danger {
     @apply text-danger hover:border-danger/40;
@@ -86,4 +70,13 @@
   & pre code { @apply bg-transparent p-0; }
   & img { @apply max-w-full rounded-md; }
   & hr { @apply border-line; }
+}
+
+@keyframes progress {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+.progress-bar { animation: progress 1.1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar { animation: none; width: 100%; opacity: 0.6; }
 }

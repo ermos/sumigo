@@ -69,6 +69,7 @@ func (a *API) Handler() http.Handler {
 	auth("GET /api/sites/{site}/media", a.listMedia)
 	auth("POST /api/sites/{site}/media", a.uploadMedia)
 	auth("GET /api/sites/{site}/media/{name}", a.getMedia)
+	auth("DELETE /api/sites/{site}/media/{name}", a.deleteMedia)
 	auth("GET /api/sites/{site}/pulls", a.listPulls)
 	auth("POST /api/sites/{site}/pulls/{number}/merge", a.mergePull)
 	return mux
