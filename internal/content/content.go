@@ -3,6 +3,7 @@ package content
 
 import (
 	"bytes"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -25,20 +26,47 @@ func Parse(raw []byte) (map[string]any, string, error) {
 	if end < 0 {
 		return data, s, nil
 	}
-	if err := yaml.Unmarshal([]byte(s[4:4+end]), &data); err != nil {
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(s[4:4+end]), &node); err != nil {
+		return nil, "", err
+	}
+	timestampsAsStrings(&node)
+	if err := node.Decode(&data); err != nil {
 		return nil, "", err
 	}
 	body := strings.TrimPrefix(s[4+end+4:], "\n")
 	return data, strings.TrimPrefix(body, "\n"), nil
 }
 
-// Render writes front matter in the collection field order, then unknown keys, then the body.
+// timestampsAsStrings keeps dates exactly as written (2026-10-13 stays 2026-10-13) instead of
+// turning them into time.Time, which would be rewritten as 2026-10-13T00:00:00Z.
+func timestampsAsStrings(n *yaml.Node) {
+	if n.Kind == yaml.ScalarNode && n.ShortTag() == "!!timestamp" {
+		n.Tag = "!!str"
+	}
+	for _, c := range n.Content {
+		timestampsAsStrings(c)
+	}
+}
+
+// isTimestamp reports whether YAML reads s, written unquoted, as a date.
+func isTimestamp(s string) bool {
+	var t time.Time
+	return yaml.Unmarshal([]byte(s), &t) == nil && !t.IsZero()
+}
+
+// Render writes front matter in the collection field order, then unknown keys sorted, then the body.
+// Dates of date/datetime fields and of unknown keys are written unquoted, so YAML (and schemas
+// like Astro's z.date()) still read them as dates.
 func Render(fields []Field, data map[string]any) ([]byte, error) {
 	doc := &yaml.Node{Kind: yaml.MappingNode}
-	add := func(k string, v any) error {
+	add := func(k string, v any, dates bool) error {
 		var val yaml.Node
 		if err := val.Encode(v); err != nil {
 			return err
+		}
+		if s, ok := v.(string); ok && dates && isTimestamp(s) {
+			val.Tag, val.Style = "!!timestamp", 0
 		}
 		doc.Content = append(doc.Content, &yaml.Node{Kind: yaml.ScalarNode, Value: k}, &val)
 		return nil
@@ -47,17 +75,22 @@ func Render(fields []Field, data map[string]any) ([]byte, error) {
 	for _, f := range fields {
 		seen[f.Name] = true
 		if v, ok := data[f.Name]; ok && f.Name != BodyField && v != nil && v != "" {
-			if err := add(f.Name, v); err != nil {
+			if err := add(f.Name, v, f.Widget == "date" || f.Widget == "datetime"); err != nil {
 				return nil, err
 			}
 		}
 	}
 	// Keep keys the CMS does not know about so it never drops data.
-	for k, v := range data {
+	unknown := []string{}
+	for k := range data {
 		if !seen[k] {
-			if err := add(k, v); err != nil {
-				return nil, err
-			}
+			unknown = append(unknown, k)
+		}
+	}
+	sort.Strings(unknown)
+	for _, k := range unknown {
+		if err := add(k, data[k], true); err != nil {
+			return nil, err
 		}
 	}
 	var buf bytes.Buffer
