@@ -113,7 +113,7 @@ The field named `body` is not written in the front matter. It is the Markdown co
 ```markdown
 ---
 title: Hello World
-date: 2026-03-07T10:00
+date: 2026-03-07T09:00:00.000Z
 tags:
   - go
   - cms
@@ -129,8 +129,8 @@ The **body** goes here.
 | `string` | Single line input | String |
 | `text` | Multi-line textarea | String |
 | `markdown` | Markdown editor with live preview | String (Markdown) |
-| `date` | Date picker | `"2026-03-07"` |
-| `datetime` | Date and time picker | `"2026-03-07T10:00"` |
+| `date` | Date picker | `2026-03-07` |
+| `datetime` | Date and time picker (local time) | `2026-03-07T09:00:00.000Z` (UTC) |
 | `boolean` | Checkbox | `true` / `false` |
 | `number` | Number input | Number |
 | `select` | Dropdown | String |
@@ -154,7 +154,8 @@ Any other widget name (for example Decap's `relation` or `file`) is shown as a s
 ## How entries are written
 
 - Front matter keys follow the order of `fields`. Empty values are left out.
-- Keys present in a file but not declared in `fields` are **kept unchanged**, after the declared ones. Adding a field to `sumigo.yml` never breaks existing entries, and removing one never deletes data.
+- Dates are written unquoted (`date: 2026-03-07`), so YAML and schemas like Astro's `z.date()` read them as dates. Dates already in a file keep their exact format.
+- Keys present in a file but not declared in `fields` are **kept unchanged**, after the declared ones, in alphabetical order. Adding a field to `sumigo.yml` never breaks existing entries, and removing one never deletes data.
 - Files without front matter can be opened: their whole content becomes `body`.
 
 ## Caching

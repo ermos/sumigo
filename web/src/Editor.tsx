@@ -109,6 +109,14 @@ interface FieldProps {
   onChange: (v: unknown) => void;
 }
 
+// toLocalInput turns a stored ISO date into the local "YYYY-MM-DDTHH:MM" a datetime input expects.
+// Values are saved back as full ISO strings so YAML reads them as dates, like Decap does.
+function toLocalInput(value: string) {
+  const d = new Date(value);
+  if (!value || isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+}
+
 // Decap semantics: fields are required unless `required: false`.
 const isRequired = (f: Field) => f.required !== false && f.widget !== 'boolean';
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
@@ -143,7 +151,7 @@ function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
       input = <input type="date" value={str.slice(0, 10)} onChange={(e) => onChange(e.target.value)} {...common} />;
       break;
     case 'datetime':
-      input = <input type="datetime-local" value={str.slice(0, 16)} onChange={(e) => onChange(e.target.value)} {...common} />;
+      input = <input type="datetime-local" value={toLocalInput(str)} onChange={(e) => onChange(e.target.value ? new Date(e.target.value).toISOString() : null)} {...common} />;
       break;
     case 'select':
       input = (
