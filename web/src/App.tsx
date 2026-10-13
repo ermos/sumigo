@@ -112,6 +112,19 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
     clearCache();
     onLogout();
   };
+  // Native <details> menus only toggle from their summary: close them on a click elsewhere or on Escape.
+  useEffect(() => {
+    const close = (e: PointerEvent | KeyboardEvent) =>
+      document.querySelectorAll('header details[open]').forEach((d) => {
+        if (e instanceof KeyboardEvent ? e.key === 'Escape' : !d.contains(e.target as Node)) d.removeAttribute('open');
+      });
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, []);
   if (focus) return <Outlet context={ctx} />;
   const base = current && `/sites/${current.id}`;
   return (
