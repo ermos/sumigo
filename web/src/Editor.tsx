@@ -137,7 +137,7 @@ function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
         </label>
       );
     case 'number':
-      input = <input type="number" value={str} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} {...common} />;
+      input = <input type="number" step="any" value={str} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} {...common} />;
       break;
     case 'date':
       input = <input type="date" value={str.slice(0, 10)} onChange={(e) => onChange(e.target.value)} {...common} />;
