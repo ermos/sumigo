@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, Route, Routes, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
+import { clearCache } from './cache';
 import { CollectionView, PullsView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 import { SiteForm, Users } from './Admin';
@@ -60,6 +61,7 @@ export default function App() {
 function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => void }) {
   const logout = async () => {
     await api('POST', '/logout');
+    clearCache();
     onLogout();
   };
   return (

@@ -67,6 +67,7 @@ export interface EntrySummary {
   title: string;
   date?: string;
   draft?: Pull;
+  data?: Record<string, unknown>;
 }
 
 export interface Entry {

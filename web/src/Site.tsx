@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom';
 import { api, can, EntrySummary, Pull, SiteDetail } from './api';
 import { Ctx, useCtx } from './App';
+import { useCached } from './cache';
+
+export const entriesKey = (siteId: number, col?: string) => `entries:${siteId}:${col}`;
 
 type SiteCtx = Ctx & { site: SiteDetail };
 
@@ -11,19 +14,9 @@ export const useSite = () => useOutletContext<SiteCtx>().site;
 export function SiteLayout() {
   const { siteId } = useParams();
   const ctx = useCtx();
-  const [site, setSite] = useState<SiteDetail | null>(null);
-  const [error, setError] = useState('');
+  const { data: site, error } = useCached(`site:${siteId}`, () => api<SiteDetail>('GET', `/sites/${siteId}`), [ctx.sites]);
 
-  useEffect(() => {
-    setSite(null);
-    setError('');
-    api<SiteDetail>('GET', `/sites/${siteId}`)
-      .then(setSite)
-      .catch((e) => setError(e.message));
-  }, [siteId, ctx.sites]);
-
-  if (error) return <p className="error">{error}</p>;
-  if (!site) return <p className="muted">Loading…</p>;
+  if (!site) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>;
   return (
     <>
       <header className="site-header">
@@ -61,18 +54,13 @@ const formatDate = (d?: string) => {
 export function CollectionView() {
   const site = useSite();
   const { col } = useParams();
-  const [entries, setEntries] = useState<EntrySummary[] | null>(null);
-  const [error, setError] = useState('');
   const [filter, setFilter] = useState('');
   const collection = site.config?.collections.find((c) => c.name === col);
-
-  useEffect(() => {
-    setEntries(null);
-    setError('');
-    api<EntrySummary[]>('GET', `/sites/${site.id}/collections/${col}/entries`)
-      .then((e) => setEntries(e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug)))))
-      .catch((e) => setError(e.message));
-  }, [site.id, col]);
+  const { data: entries, error, refreshing } = useCached(entriesKey(site.id, col), () =>
+    api<EntrySummary[]>('GET', `/sites/${site.id}/collections/${col}/entries`).then((e) =>
+      e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug))),
+    ),
+  );
 
   if (!collection) return <p className="muted">Unknown collection.</p>;
   const q = filter.toLowerCase();
@@ -81,6 +69,8 @@ export function CollectionView() {
     <>
       <div className="toolbar">
         <input placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+        {entries && refreshing && <span className="muted small">Syncing with GitHub…</span>}
+        <span className="spacer" />
         {can(site.role, 'editor') && collection.create !== false && (
           <Link className="button primary" to={`/sites/${site.id}/c/${col}/new`}>
             New {collection.label || collection.name}

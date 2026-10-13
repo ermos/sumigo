@@ -147,7 +147,7 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	res = call(viewer, http.MethodGet, "")
 	var entries []entrySummary
 	_ = json.NewDecoder(res.Body).Decode(&entries)
-	if len(entries) != 2 || entries[0].Title != "Old post" || entries[1].Title != "Draft post" || entries[1].Draft == nil {
+	if len(entries) != 2 || entries[0].Title != "Old post" || entries[1].Title != "Draft post" || entries[1].Draft == nil || entries[1].Data["title"] != "Draft post" {
 		t.Fatalf("entries = %+v", entries)
 	}
 	if gh.graphql["dir"] != "main:content/posts" || gh.graphql["e0"] != "cms/posts/hello-world:content/posts/hello-world.md" {
