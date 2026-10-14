@@ -127,7 +127,7 @@ export function ContentLayout() {
     <div className="flex flex-col gap-8 md:flex-row">
       <aside className="shrink-0 md:w-52">
         <nav className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1 text-xs font-medium text-muted">{t('Collections')}</p>
+          <p className="px-2.5 pb-1.5 text-sm font-semibold text-ink">{t('Collections')}</p>
           {site.config?.collections.map((c) => (
             <NavLink key={c.name} to={`/sites/${site.id}/c/${c.name}`} className={sideLink}>
               {c.label || c.name}
