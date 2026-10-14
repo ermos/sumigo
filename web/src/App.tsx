@@ -4,7 +4,7 @@ import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
 import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
-import { CollectionView, ContentLayout, MediaView, PullsView, SiteHome, SiteLayout } from './Site';
+import { CollectionView, ContentLayout, MediaView, PullsView, SetupView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
 
@@ -58,6 +58,7 @@ export default function App() {
             </Route>
             <Route path="workflow" element={<PullsView />} />
             <Route path="media" element={<MediaView />} />
+            <Route path="setup" element={<SetupView />} />
             <Route path="c/:col/new" element={<Editor />} />
             <Route path="c/:col/e/:slug" element={<Editor />} />
           </Route>

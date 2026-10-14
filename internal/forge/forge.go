@@ -20,6 +20,8 @@ import (
 // Forge is what the CMS needs from a git hosting. "Pull" means a pull request, or a merge request on GitLab.
 type Forge interface {
 	ListDir(ctx context.Context, dir, ref string) ([]File, error)
+	// Tree lists the paths of every file of the repository at ref.
+	Tree(ctx context.Context, ref string) ([]string, error)
 	// GetFile returns the content of a file and the version to pass back to PutFile or DeleteFile.
 	GetFile(ctx context.Context, path, ref string) ([]byte, string, error)
 	GetRaw(ctx context.Context, path, ref string) (io.ReadCloser, error)
@@ -231,6 +233,19 @@ func readDir(ctx context.Context, f Forge, ref, dir, ext string, extra []string)
 		})
 	}
 	return blobs, texts, g.Wait()
+}
+
+type treeEntry struct{ Path, Type string }
+
+// blobs keeps the file paths of a git tree listing (GitHub and Gitea shape).
+func blobs(entries []treeEntry) []string {
+	paths := []string{}
+	for _, e := range entries {
+		if e.Type == "blob" {
+			paths = append(paths, e.Path)
+		}
+	}
+	return paths
 }
 
 // withPrefix keeps the pull requests whose branch starts with prefix.

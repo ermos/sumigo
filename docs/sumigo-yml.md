@@ -2,6 +2,8 @@
 
 `sumigo.yml` describes the content model of a site: where uploads go, which folders hold entries, and which fields each entry has. It lives **at the root of the site repository**, on the branch configured for the site in the CMS. The CMS reads it from the forge (GitHub, GitLab, Forgejo or Gitea), so changing the content model is a regular commit in the site repo.
 
+A repository without `sumigo.yml` can still be added: the site page offers **Set up the site**, which drafts the file from the repository (its Decap CMS `admin/config.yml` when there is one, otherwise one collection per folder of markdown files, with fields guessed from a few entries), lets the admin edit it, then commits it.
+
 The format follows [Decap CMS](https://decapcms.org/docs/configuration-options/), so most Decap configs can be copied over with little or no change (see [Differences with Decap](#differences-with-decap-cms)).
 
 ## Full example

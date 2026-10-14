@@ -66,6 +66,8 @@ export const treeURL = (site: Site) => `${forgeURL(site)}/${site.repo}/${{ githu
 export interface SiteDetail extends Site {
   config: Config | null;
   config_error?: string;
+  // config_missing offers the onboarding: the repository has no sumigo.yml yet.
+  config_missing?: boolean;
   // ai is true when the assistant is on for the instance and this site.
   ai: boolean;
 }

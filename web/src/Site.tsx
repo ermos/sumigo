@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { Link, Navigate, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api, can, EntrySummary, forgeNames, treeURL, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { Ctx, useCtx } from './App';
 
@@ -34,17 +34,88 @@ export function SiteLayout() {
   const { siteId } = useParams();
   const ctx = useCtx();
   const { data: site, error } = useCached(`site:${siteId}`, () => api<SiteDetail>('GET', `/sites/${siteId}`), [ctx.sites]);
+  const onSetup = useMatch('/sites/:siteId/setup');
 
   if (!site) return error ? <Notice>{error}</Notice> : <Loading />;
   return (
     <>
-      {site.config_error && (
+      {site.config_missing && !onSetup && (
+        <div className="panel mb-4 flex flex-wrap items-center gap-3 px-4 py-3 text-[13px]">
+          <span className="flex-1">{t(ctx.me.is_admin ? 'This repository has no sumigo.yml yet.' : 'This site is not set up yet. Ask an admin.')}</span>
+          {ctx.me.is_admin && (
+            <Link to={`/sites/${site.id}/setup`} className="btn btn-primary">
+              {t('Set up the site')}
+            </Link>
+          )}
+        </div>
+      )}
+      {site.config_error && !site.config_missing && (
         <div className="mb-4">
           <Notice>{t('Cannot load sumigo.yml: {error}', { error: site.config_error })}</Notice>
         </div>
       )}
       <Outlet context={{ ...ctx, site } satisfies SiteCtx} />
     </>
+  );
+}
+
+// SetupView drafts the sumigo.yml of a repository (its Decap config, or detected from its files) and commits it once reviewed.
+export function SetupView() {
+  const { site, reloadSites } = useOutletContext<SiteCtx>();
+  const navigate = useNavigate();
+  const [run, pending] = useAction();
+  const [proposal, setProposal] = useState<{ yaml: string; source: 'decap' | 'detected'; from?: string } | null>(null);
+  const [yaml, setYaml] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api<{ yaml: string; source: 'decap' | 'detected'; from?: string }>('GET', `/sites/${site.id}/setup`)
+      .then((p) => {
+        setProposal(p);
+        setYaml(p.yaml);
+      })
+      .catch((e) => setError(e.message));
+  }, [site.id]);
+
+  const apply = async () => {
+    setError('');
+    try {
+      await api('POST', `/sites/${site.id}/setup`, { yaml });
+      reloadSites();
+      navigate(`/sites/${site.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <h1>{t('Set up {name}', { name: site.name })}</h1>
+      <p className="mb-6 text-muted">
+        {proposal && t(proposal.source === 'decap' ? 'Imported from {file}.' : 'Detected from the repository files.', { file: proposal.from ?? '' })}
+      </p>
+      {!proposal && !error && <Loading>{t('Analyzing the repository…')}</Loading>}
+      {proposal && (
+        <div className="panel">
+          <div className="p-4">
+            <textarea className="field min-h-[28rem] w-full font-mono text-xs leading-5" value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false} aria-label="sumigo.yml" />
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-line bg-canvas/60 px-4 py-3">
+            <a href="https://github.com/ermos/sumigo/blob/main/docs/sumigo-yml.md" target="_blank" rel="noreferrer" className="mr-auto text-[13px] text-accent hover:underline">
+              {t('sumigo.yml reference')}
+            </a>
+            <button type="button" className="btn btn-primary" onClick={() => run('apply', apply)} disabled={!!pending || !yaml.trim()}>
+              <Pending on={!!pending}>{t(pending ? 'Committing…' : 'Create sumigo.yml')}</Pending>
+            </button>
+          </div>
+        </div>
+      )}
+      {error && (
+        <div className="mt-4">
+          <Notice>{error}</Notice>
+        </div>
+      )}
+    </div>
   );
 }
 

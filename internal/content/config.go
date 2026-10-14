@@ -12,30 +12,30 @@ const ConfigFile = "sumigo.yml"
 
 // Config is the content of ConfigFile. It follows the Decap CMS format.
 type Config struct {
-	MediaFolder  string       `yaml:"media_folder" json:"media_folder"`
-	PublicFolder string       `yaml:"public_folder" json:"public_folder"`
-	Collections  []Collection `yaml:"collections" json:"collections"`
+	MediaFolder  string       `yaml:"media_folder,omitempty" json:"media_folder"`
+	PublicFolder string       `yaml:"public_folder,omitempty" json:"public_folder"`
+	Collections  []Collection `yaml:"collections,omitempty" json:"collections"`
 }
 
 type Collection struct {
-	Name            string  `yaml:"name" json:"name"`
-	Label           string  `yaml:"label" json:"label,omitempty"`
-	Folder          string  `yaml:"folder" json:"folder"`
-	Extension       string  `yaml:"extension" json:"extension,omitempty"`
-	Slug            string  `yaml:"slug" json:"slug,omitempty"`
-	IdentifierField string  `yaml:"identifier_field" json:"identifier_field,omitempty"`
-	Create          *bool   `yaml:"create" json:"create,omitempty"`
-	Fields          []Field `yaml:"fields" json:"fields"`
+	Name            string  `yaml:"name,omitempty" json:"name"`
+	Label           string  `yaml:"label,omitempty" json:"label,omitempty"`
+	Folder          string  `yaml:"folder,omitempty" json:"folder"`
+	Extension       string  `yaml:"extension,omitempty" json:"extension,omitempty"`
+	Slug            string  `yaml:"slug,omitempty" json:"slug,omitempty"`
+	IdentifierField string  `yaml:"identifier_field,omitempty" json:"identifier_field,omitempty"`
+	Create          *bool   `yaml:"create,omitempty" json:"create,omitempty"`
+	Fields          []Field `yaml:"fields,omitempty" json:"fields"`
 }
 
 type Field struct {
-	Name     string  `yaml:"name" json:"name"`
-	Label    string  `yaml:"label" json:"label,omitempty"`
-	Widget   string  `yaml:"widget" json:"widget"`
-	Required *bool   `yaml:"required" json:"required,omitempty"`
-	Options  []any   `yaml:"options" json:"options,omitempty"`
-	Default  any     `yaml:"default" json:"default,omitempty"`
-	Fields   []Field `yaml:"fields" json:"fields,omitempty"`
+	Name     string  `yaml:"name,omitempty" json:"name"`
+	Label    string  `yaml:"label,omitempty" json:"label,omitempty"`
+	Widget   string  `yaml:"widget,omitempty" json:"widget"`
+	Required *bool   `yaml:"required,omitempty" json:"required,omitempty"`
+	Options  []any   `yaml:"options,omitempty" json:"options,omitempty"`
+	Default  any     `yaml:"default,omitempty" json:"default,omitempty"`
+	Fields   []Field `yaml:"fields,omitempty" json:"fields,omitempty"`
 }
 
 // IsRequired follows Decap: fields are required unless `required: false`.
