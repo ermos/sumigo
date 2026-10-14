@@ -332,3 +332,22 @@ func (c *Client) ListCommits(ctx context.Context, path, ref string) ([]Commit, e
 	}
 	return commits, nil
 }
+
+// CommitPatch returns the unified diff a commit made to path, "" when GitHub has none (binary or too large).
+func (c *Client) CommitPatch(ctx context.Context, sha, path string) (string, error) {
+	var out struct {
+		Files []struct {
+			Filename string `json:"filename"`
+			Patch    string `json:"patch"`
+		} `json:"files"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/commits/"+url.PathEscape(sha), nil, &out); err != nil {
+		return "", err
+	}
+	for _, f := range out.Files {
+		if f.Filename == path {
+			return f.Patch, nil
+		}
+	}
+	return "", nil
+}

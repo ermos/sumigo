@@ -210,7 +210,6 @@ export const fr = {
   Undo: 'Annuler',
   Proofread: 'Relire',
   'Proofreading…': 'Relecture…',
-  'Fixes spelling and grammar without changing the content. Cmd+Z undoes it.': "Corrige l'orthographe et la grammaire sans changer le contenu. Cmd+Z annule.",
   Schedule: 'Programmer',
   Scheduled: 'Programmé',
   'Scheduled {date}': 'Programmé le {date}',
@@ -249,4 +248,14 @@ export const fr = {
   'Topic, audience, key points, tone…': 'Sujet, public, points clés, ton…',
   'Replaces the current content (Cmd+Z to undo).': 'Remplace le contenu actuel (Cmd+Z pour annuler).',
   'Save the draft first.': "Enregistrez d'abord le brouillon.",
+  // Diffs and proofreading review
+  Changes: 'Modifications',
+  'No diff available for this version.': 'Aucun diff disponible pour cette version.',
+  'Fixes spelling and grammar without changing the content.': "Corrige l'orthographe et la grammaire sans changer le contenu.",
+  'No correction needed.': 'Aucune correction nécessaire.',
+  '{n} corrections': '{n} corrections',
+  Accept: 'Accepter',
+  Discard: 'Ignorer',
+  added: 'ajout',
+  removed: 'supprimé',
 };
