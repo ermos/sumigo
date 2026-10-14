@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -23,6 +24,8 @@ const branchPrefix = "cms/"
 
 // ponytail: config cached per site for configTTL, edits to sumigo.yml show up after that (or on "Test access").
 const configTTL = time.Minute
+
+var errNoConfig = errors.New(content.ConfigFile + " not found")
 
 type cachedConfig struct {
 	cfg *content.Config
@@ -80,7 +83,7 @@ func (a *API) config(ctx context.Context, sc *siteCtx, fresh bool) (*content.Con
 	}
 	raw, _, err := sc.gh.GetFile(ctx, content.ConfigFile, sc.site.Branch)
 	if forge.IsNotFound(err) {
-		return nil, fmt.Errorf("%s not found at the root of branch %s", content.ConfigFile, sc.site.Branch)
+		return nil, fmt.Errorf("%w at the root of branch %s", errNoConfig, sc.site.Branch)
 	}
 	if err != nil {
 		return nil, err

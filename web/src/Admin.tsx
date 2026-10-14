@@ -75,7 +75,8 @@ export function SiteForm() {
       setDomains((await api<string[]>('GET', `/sites/${saved.id}/domains`)).join('\n'));
       reloadSites();
       setStatus(t('Saved'));
-      if (!site.id) navigate(`/admin/sites/${saved.id}`);
+      // A new site opens on its own page, which offers the setup when the repository has no sumigo.yml.
+      if (!site.id) navigate(`/sites/${saved.id}`);
     } catch (err) {
       setError((err as Error).message);
     }

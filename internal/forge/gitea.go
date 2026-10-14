@@ -30,6 +30,23 @@ func (c *Gitea) ListDir(ctx context.Context, dir, ref string) ([]File, error) {
 	return files, err
 }
 
+func (c *Gitea) Tree(ctx context.Context, ref string) ([]string, error) {
+	var all []treeEntry
+	for page := 1; ; page++ {
+		var t struct {
+			Tree      []treeEntry
+			Truncated bool
+		}
+		if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/git/trees/%s?recursive=true&per_page=1000&page=%d", url.PathEscape(ref), page), nil, &t); err != nil {
+			return nil, err
+		}
+		all = append(all, t.Tree...)
+		if !t.Truncated || len(t.Tree) == 0 {
+			return blobs(all), nil
+		}
+	}
+}
+
 func (c *Gitea) GetFile(ctx context.Context, path, ref string) ([]byte, string, error) {
 	var f File
 	if err := c.do(ctx, http.MethodGet, "/contents/"+escapePath(path)+"?ref="+url.QueryEscape(ref), nil, &f); err != nil {

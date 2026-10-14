@@ -95,6 +95,13 @@ func (c *GitHub) CreateBranch(ctx context.Context, name, fromSHA string) error {
 	return err
 }
 
+// ponytail: a truncated tree (over 100,000 files) is listed partially; fine for a website repository.
+func (c *GitHub) Tree(ctx context.Context, ref string) ([]string, error) {
+	var t struct{ Tree []treeEntry }
+	err := c.do(ctx, http.MethodGet, "/git/trees/"+url.PathEscape(ref)+"?recursive=1", nil, &t)
+	return blobs(t.Tree), err
+}
+
 // ClosePull deletes the branch, which closes its pull request.
 func (c *GitHub) ClosePull(ctx context.Context, p Pull) error {
 	return c.DeleteBranch(ctx, p.Head.Ref)

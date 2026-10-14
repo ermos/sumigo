@@ -48,6 +48,21 @@ func (c *GitLab) ListDir(ctx context.Context, dir, ref string) ([]File, error) {
 	}
 }
 
+func (c *GitLab) Tree(ctx context.Context, ref string) ([]string, error) {
+	var all []treeEntry
+	for page := 1; ; page++ {
+		var tree []treeEntry
+		q := url.Values{"ref": {ref}, "recursive": {"true"}, "per_page": {"100"}, "page": {fmt.Sprint(page)}}
+		if err := c.do(ctx, http.MethodGet, "/repository/tree?"+q.Encode(), nil, &tree); err != nil {
+			return nil, err
+		}
+		all = append(all, tree...)
+		if len(tree) < 100 {
+			return blobs(all), nil
+		}
+	}
+}
+
 func (c *GitLab) GetFile(ctx context.Context, path, ref string) ([]byte, string, error) {
 	var f struct {
 		Content string `json:"content"`

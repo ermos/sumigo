@@ -76,6 +76,8 @@ func (a *API) Handler() http.Handler {
 	admin("PUT /api/sites/{site}/access", a.setAccess)
 	admin("POST /api/sites/{site}/check", a.checkSite)
 	admin("GET /api/sites/{site}/domains", a.getDomains)
+	admin("GET /api/sites/{site}/setup", a.proposeSetup)
+	admin("POST /api/sites/{site}/setup", a.applySetup)
 
 	auth("GET /api/sites/{site}/collections/{col}/entries", a.listEntries)
 	auth("POST /api/sites/{site}/collections/{col}/entries", a.saveEntry)
@@ -306,6 +308,8 @@ func (a *API) getSite(w http.ResponseWriter, r *http.Request) {
 		*store.Site
 		Config      *content.Config `json:"config"`
 		ConfigError string          `json:"config_error,omitempty"`
+		// ConfigMissing offers the onboarding: the repository has no sumigo.yml yet.
+		ConfigMissing bool `json:"config_missing,omitempty"`
 		// AI is true when the editor can use the assistant: on for the instance and the site.
 		AI bool `json:"ai"`
 	}{Site: sc.site}
@@ -314,6 +318,7 @@ func (a *API) getSite(w http.ResponseWriter, r *http.Request) {
 		out.ConfigError = "no access token configured"
 	} else if cfg, err := a.config(r.Context(), sc, false); err != nil {
 		out.ConfigError = err.Error()
+		out.ConfigMissing = errors.Is(err, errNoConfig)
 	} else {
 		out.Config = cfg
 	}
