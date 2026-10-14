@@ -235,6 +235,9 @@ export function SiteForm() {
                 <Pending on={pending === 'delete'}>{t(pending === 'delete' ? 'Deleting…' : 'Delete site')}</Pending>
               </button>
               <span className="flex-1" />
+              <Link to={`/admin/sites/${site.id}/config`} className="btn">
+                {t('Edit sumigo.yml')}
+              </Link>
               <button type="button" className="btn" onClick={() => run('check', check)} disabled={!!pending}>
                 <Pending on={pending === 'check'}>{t(pending === 'check' ? 'Testing…' : 'Test access')}</Pending>
               </button>

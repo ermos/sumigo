@@ -77,6 +77,9 @@ func (a *API) Handler() http.Handler {
 	admin("POST /api/sites/{site}/check", a.checkSite)
 	admin("GET /api/sites/{site}/domains", a.getDomains)
 	admin("GET /api/sites/{site}/setup", a.proposeSetup)
+	admin("GET /api/sites/{site}/config", a.getConfigFile)
+	admin("PUT /api/sites/{site}/config", a.saveConfigFile)
+	admin("POST /api/config/check", a.checkConfigFile)
 	admin("POST /api/sites/{site}/setup", a.applySetup)
 
 	auth("GET /api/sites/{site}/collections/{col}/entries", a.listEntries)
