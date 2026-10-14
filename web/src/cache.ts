@@ -42,28 +42,31 @@ export function clearCache() {
 }
 
 // useCached returns the cached value right away and refreshes it with fetcher.
+// The state remembers the key it was loaded for: when the key changes (another site, another collection),
+// the value of the previous key is never returned, even for the render before the refresh starts.
 export function useCached<T>(key: string, fetcher: () => Promise<T>, deps: unknown[] = []) {
-  const [data, setData] = useState<T | undefined>(() => getCached<T>(key));
-  const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(true);
+  const [state, setState] = useState<{ key: string; data?: T; error: string; refreshing: boolean }>(() => ({
+    key,
+    data: getCached<T>(key),
+    error: '',
+    refreshing: true,
+  }));
 
   useEffect(() => {
     let live = true;
-    setData(getCached<T>(key));
-    setError('');
-    setRefreshing(true);
+    setState({ key, data: getCached<T>(key), error: '', refreshing: true });
     fetcher()
       .then((v) => {
         setCached(key, v);
-        if (live) setData(v);
+        if (live) setState({ key, data: v, error: '', refreshing: false });
       })
-      .catch((e) => live && setError(e.message))
-      .finally(() => live && setRefreshing(false));
+      .catch((e) => live && setState((s) => ({ ...s, error: e.message, refreshing: false })));
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, ...deps]);
 
-  return { data, error, refreshing };
+  if (state.key !== key) return { data: getCached<T>(key), error: '', refreshing: true };
+  return { data: state.data, error: state.error, refreshing: state.refreshing };
 }
