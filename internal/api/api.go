@@ -31,7 +31,8 @@ type API struct {
 	NewForge func(kind, baseURL, token, repo string) forge.Forge
 	// NewAI builds the AI assistant client; replaceable in tests.
 	NewAI func(ai.Config) *ai.Client
-	// SecureCookie sets the Secure flag on the session cookie (enable behind HTTPS).
+	// SecureCookie sets the Secure flag on the session cookie: on by default (SECURE_COOKIE=false turns it off),
+	// so the session never travels unencrypted. Browsers accept it on http://localhost too.
 	SecureCookie bool
 
 	configs   sync.Map // site ID -> cachedConfig

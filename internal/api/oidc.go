@@ -109,10 +109,11 @@ func (a *API) oidcConfig(r *http.Request) (*oidc.Provider, *oauth2.Config, store
 	}, o, nil
 }
 
-// origin is the URL the browser reached the instance on: https behind a TLS reverse proxy.
+// origin is the URL the browser reached the instance on. Behind a reverse proxy, its X-Forwarded-Proto
+// tells the scheme (Caddy and Traefik send it by default, nginx needs proxy_set_header).
 func (a *API) origin(r *http.Request) string {
 	scheme := "http"
-	if a.SecureCookie || r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host

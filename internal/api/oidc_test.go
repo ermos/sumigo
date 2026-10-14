@@ -115,3 +115,16 @@ func TestOIDCLoginCreatesTheUserAndSyncsAdmin(t *testing.T) {
 		t.Fatalf("unknown user: %s", res.Header.Get("Location"))
 	}
 }
+
+func TestOriginFollowsTheRequestNotTheCookieSetting(t *testing.T) {
+	a := &API{SecureCookie: true}
+	r := httptest.NewRequest(http.MethodGet, "http://localhost:8080/api/auth/oidc", nil)
+	if got := a.origin(r); got != "http://localhost:8080" {
+		t.Fatalf("plain http = %s", got)
+	}
+	r.Host = "cms.acme.io"
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if got := a.origin(r); got != "https://cms.acme.io" {
+		t.Fatalf("behind a TLS proxy = %s", got)
+	}
+}
