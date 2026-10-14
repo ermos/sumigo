@@ -85,3 +85,45 @@ func TestSetupProposesThenCommitsTheConfig(t *testing.T) {
 		t.Fatalf("setup offered again: %d", code)
 	}
 }
+
+func TestConfigFileIsCheckedThenCommittedOnTopOfItsVersion(t *testing.T) {
+	gh := &fakeGitHub{}
+	a, st := newTestAPI(t, gh)
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSite(&store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	call := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+
+	if code, body := call(http.MethodGet, "/api/sites/1/config", ""); code != http.StatusOK || !strings.Contains(body, `"sha":"c1"`) || !strings.Contains(body, "media_folder") {
+		t.Fatalf("get %d: %s", code, body)
+	}
+	// A syntax error points to its line, so the editor can underline it.
+	if code, body := call(http.MethodPost, "/api/config/check", `{"yaml":"collections:\n  - name: a\n folder: x"}`); code != http.StatusBadRequest || !strings.Contains(body, `"line":"2"`) {
+		t.Fatalf("check %d: %s", code, body)
+	}
+	if code, _ := call(http.MethodPut, "/api/sites/1/config", `{"yaml":"collections: [{ name: a/b, folder: x }]","sha":"c1"}`); code != http.StatusBadRequest {
+		t.Fatalf("invalid config saved: %d", code)
+	}
+	if code, body := call(http.MethodPut, "/api/sites/1/config", `{"yaml":"collections: [{ name: posts, folder: content/posts }]","sha":"c1"}`); code != http.StatusOK {
+		t.Fatalf("save %d: %s", code, body)
+	}
+	if put := gh.bodies[len(gh.bodies)-1]; gh.writes[len(gh.writes)-1] != "PUT /contents/sumigo.yml" || put["sha"] != "c1" {
+		t.Fatalf("commit %v %v", gh.writes, put)
+	}
+}

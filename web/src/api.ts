@@ -134,6 +134,7 @@ export class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    public params?: Record<string, string>,
   ) {
     super(message);
   }
@@ -163,7 +164,7 @@ export async function api<T = void>(method: string, path: string, body?: unknown
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new HttpError(res.status, tError(err.code, err.params, err.error ?? res.statusText));
+      throw new HttpError(res.status, tError(err.code, err.params, err.error ?? res.statusText), err.params);
     }
     return res.status === 204 ? (undefined as T) : await res.json();
   } finally {

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
@@ -6,6 +6,8 @@ import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
 import { CollectionView, ContentLayout, MediaView, PullsView, SetupView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
+// The sumigo.yml editor brings CodeMirror: loaded only when opened.
+const ConfigEditor = lazy(() => import('./ConfigEditor'));
 import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
 
 export interface Ctx {
@@ -75,6 +77,14 @@ export default function App() {
               <Route path="admin/sites/new" element={<SiteForm />} />
               <Route path="admin/sites/:siteId" element={<SiteForm />} />
               <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
+              <Route
+                path="admin/sites/:siteId/config"
+                element={
+                  <Suspense fallback={null}>
+                    <ConfigEditor />
+                  </Suspense>
+                }
+              />
             </>
           )}
           <Route path="*" element={<p className="text-muted">{t('Page not found.')}</p>} />
