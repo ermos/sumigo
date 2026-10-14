@@ -60,9 +60,6 @@ export const forgeNames: Record<Forge, string> = { github: 'GitHub', gitlab: 'Gi
 // forgeURL is the web URL of the instance hosting the site.
 export const forgeURL = (site: Pick<Site, 'forge' | 'forge_url'>) => site.forge_url || (site.forge === 'gitlab' ? 'https://gitlab.com' : 'https://github.com');
 
-// treeURL links to the files of the site branch on its forge.
-export const treeURL = (site: Site) => `${forgeURL(site)}/${site.repo}/${{ github: 'tree', gitlab: '-/tree', gitea: 'src/branch' }[site.forge]}/${site.branch}`;
-
 export interface SiteDetail extends Site {
   config: Config | null;
   config_error?: string;
