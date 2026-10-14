@@ -2,11 +2,11 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
-import { Lang, lang, languages, setLang, t } from './i18n';
+import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
 import { CollectionView, ContentLayout, MediaView, PullsView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
-import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, Users } from './Admin';
+import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
 
 export interface Ctx {
   me: User;
@@ -68,6 +68,7 @@ export default function App() {
                 <Route path="users" element={<Users />} />
                 <Route path="sites" element={<AdminSites />} />
                 <Route path="ai" element={<AISettingsPage />} />
+                <Route path="sso" element={<SSOSettingsPage />} />
               </Route>
               <Route path="admin/sites/new" element={<SiteForm />} />
               <Route path="admin/sites/:siteId" element={<SiteForm />} />
@@ -274,11 +275,29 @@ function Home() {
   );
 }
 
+// Errors of the single sign-on callback, which redirects to /?login_error=<code>. English text when untranslated.
+const ssoErrors: Record<string, string> = {
+  oidc_failed: 'Single sign-on failed, try again.',
+  oidc_unavailable: 'Single sign-on is unavailable.',
+  oidc_email: 'The provider did not share a verified email.',
+  oidc_unknown_user: 'No Sumigo account for this email. Ask an admin to add you.',
+};
+
 function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [run, pending] = useAction();
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    const code = new URLSearchParams(location.search).get('login_error');
+    return code ? tError(code, undefined, ssoErrors[code] ?? ssoErrors.oidc_failed) : '';
+  });
+  const [sso, setSSO] = useState<{ oidc: boolean; label: string } | null>(null);
+  useEffect(() => {
+    if (location.search.includes('login_error')) history.replaceState(null, '', '/');
+    api<{ oidc: boolean; label: string }>('GET', '/auth/config')
+      .then(setSSO)
+      .catch(() => {});
+  }, []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     try {
@@ -311,6 +330,11 @@ function Login({ onLogin }: { onLogin: (u: User) => void }) {
           <button className="btn btn-primary py-2" disabled={!!pending}>
             <Pending on={!!pending}>{t(pending ? 'Logging in…' : 'Log in')}</Pending>
           </button>
+          {sso?.oidc && (
+            <a href="/api/auth/oidc" className="btn justify-center py-2">
+              {t('Continue with {provider}', { provider: sso.label || 'SSO' })}
+            </a>
+          )}
         </div>
       </form>
     </div>

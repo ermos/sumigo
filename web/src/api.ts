@@ -96,6 +96,17 @@ export interface AISettings {
   has_key: boolean;
 }
 
+export interface OIDCSettings {
+  enabled: boolean;
+  issuer: string;
+  label: string;
+  client_id: string;
+  client_secret?: string;
+  has_secret: boolean;
+  auto_create: boolean;
+  admin_group: string;
+}
+
 export interface EntrySummary {
   slug: string;
   path: string;

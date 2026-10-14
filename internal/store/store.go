@@ -165,6 +165,11 @@ func (s *Store) userWhere(where string, arg any) (*User, error) {
 
 func (s *Store) UserByID(id int64) (*User, error) { return s.userWhere("id = ?", id) }
 
+// UserByEmail ignores case: identity providers do not always keep the case the admin typed.
+func (s *Store) UserByEmail(email string) (*User, error) {
+	return s.userWhere("lower(email) = lower(?)", email)
+}
+
 // Authenticate returns the user matching email and password.
 func (s *Store) Authenticate(email, password string) (*User, error) {
 	u, err := s.userWhere("email = ?", email)
@@ -509,22 +514,41 @@ type AISettings struct {
 	HasKey bool   `json:"has_key"`
 }
 
-// AI returns the AI settings, with the decrypted API key.
-func (s *Store) AI() (AISettings, error) {
-	var ai AISettings
+// setting reads the encrypted JSON setting key into v, left as is when unset.
+func (s *Store) setting(key string, v any) error {
 	var enc []byte
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = 'ai'`).Scan(&enc)
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&enc)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ai, nil
+		return nil
 	}
 	if err != nil {
-		return ai, err
+		return err
 	}
 	plain, err := s.decrypt(enc)
 	if err != nil {
-		return ai, err
+		return err
 	}
-	if err := json.Unmarshal([]byte(plain), &ai); err != nil {
+	return json.Unmarshal([]byte(plain), v)
+}
+
+// saveSetting stores v as an encrypted JSON setting: settings hold secrets (API keys, client secrets).
+func (s *Store) saveSetting(key string, v any) error {
+	plain, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	enc, err := s.encrypt(string(plain))
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, enc)
+	return err
+}
+
+// AI returns the AI settings, with the decrypted API key.
+func (s *Store) AI() (AISettings, error) {
+	var ai AISettings
+	if err := s.setting("ai", &ai); err != nil {
 		return ai, err
 	}
 	ai.HasKey = ai.APIKey != ""
@@ -535,15 +559,31 @@ func (s *Store) AI() (AISettings, error) {
 }
 
 // SaveAI stores the AI settings, API key included.
-func (s *Store) SaveAI(ai AISettings) error {
-	plain, err := json.Marshal(ai)
-	if err != nil {
-		return err
-	}
-	enc, err := s.encrypt(string(plain))
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO settings (key, value) VALUES ('ai', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`, enc)
-	return err
+func (s *Store) SaveAI(ai AISettings) error { return s.saveSetting("ai", ai) }
+
+// --- single sign-on
+
+// OIDCSettings connect an OpenID Connect provider (Keycloak, Authentik, Entra ID, Google…) for login.
+type OIDCSettings struct {
+	Enabled bool   `json:"enabled"`
+	Issuer  string `json:"issuer"`
+	// Label names the provider on the login button.
+	Label    string `json:"label"`
+	ClientID string `json:"client_id"`
+	// ClientSecret is write-only, like site tokens.
+	ClientSecret string `json:"client_secret,omitempty"`
+	HasSecret    bool   `json:"has_secret"`
+	// AutoCreate creates the Sumigo user on first login; otherwise an admin adds the email first.
+	AutoCreate bool `json:"auto_create"`
+	// AdminGroup, when set, makes admins of the members of this "groups" claim, and only them.
+	AdminGroup string `json:"admin_group"`
 }
+
+func (s *Store) OIDC() (OIDCSettings, error) {
+	var o OIDCSettings
+	err := s.setting("oidc", &o)
+	o.HasSecret = o.ClientSecret != ""
+	return o, err
+}
+
+func (s *Store) SaveOIDC(o OIDCSettings) error { return s.saveSetting("oidc", o) }

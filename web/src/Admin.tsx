@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
-import { Access, AISettings, api, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
+import { Access, AISettings, api, OIDCSettings, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
 import { Monogram, roleNames, useCtx } from './App';
 import { t } from './i18n';
 import { Pending, useAction } from './ui';
@@ -585,6 +585,100 @@ export function AISettingsPage() {
   );
 }
 
+// SSOSettingsPage connects an OpenID Connect provider for login.
+export function SSOSettingsPage() {
+  const [run, pending] = useAction();
+  const [sso, setSSO] = useState<OIDCSettings | null>(null);
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+  const [domains, setDomains] = useState<string[]>([]);
+  const { sites } = useCtx();
+
+  useEffect(() => {
+    api<OIDCSettings>('GET', '/settings/oidc')
+      .then((s) => setSSO({ ...s, client_secret: '' }))
+      .catch((e) => setError(e.message));
+  }, []);
+  // Every custom domain needs its own redirect URI at the provider.
+  useEffect(() => {
+    Promise.all(sites.map((s) => api<string[]>('GET', `/sites/${s.id}/domains`).catch(() => [])))
+      .then((all) => setDomains(all.flat()))
+      .catch(() => {});
+  }, [sites]);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setStatus('');
+    try {
+      const s = await api<OIDCSettings>('PUT', '/settings/oidc', sso);
+      setSSO({ ...s, client_secret: '' });
+      setStatus(t('Saved'));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  if (!sso) return error ? <Notice>{error}</Notice> : null;
+  const set = (k: keyof OIDCSettings) => (e: { target: { value: string } }) => setSSO({ ...sso, [k]: e.target.value });
+  const callbacks = [location.host, ...domains].map((h) => `${location.protocol}//${h}/api/auth/oidc/callback`);
+  return (
+    <div className="max-w-3xl">
+      <h1 className="mb-6">{t('Single sign-on')}</h1>
+      <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
+        <div className="flex flex-col gap-5 p-6">
+          <label className="flex items-center gap-2 text-[13px] font-medium">
+            <input className="size-4 accent-accent" type="checkbox" checked={sso.enabled} onChange={(e) => setSSO({ ...sso, enabled: e.target.checked })} />
+            {t('Enable login with an OpenID Connect provider')}
+          </label>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="label">
+              {t('Issuer URL')}
+              <input className="field font-mono" type="url" value={sso.issuer} onChange={set('issuer')} placeholder="https://auth.example.com/realms/acme" required={sso.enabled} />
+            </label>
+            <label className="label">
+              {t('Button label')}
+              <input className="field" value={sso.label} onChange={set('label')} placeholder="Keycloak" />
+            </label>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="label">
+              {t('Client ID')}
+              <input className="field font-mono" value={sso.client_id} onChange={set('client_id')} required={sso.enabled} />
+            </label>
+            <label className="label">
+              <span>
+                {t('Client secret')} {sso.has_secret && <span className="font-normal text-muted">{t('(already set, leave empty to keep it)')}</span>}
+              </span>
+              <input className="field font-mono" type="password" value={sso.client_secret ?? ''} onChange={set('client_secret')} autoComplete="off" />
+            </label>
+          </div>
+          <div className="label">
+            {t('Redirect URIs to register')}
+            <pre className="field overflow-x-auto font-mono text-xs leading-5 select-all">{callbacks.join('\n')}</pre>
+          </div>
+          <label className="flex items-center gap-2 text-[13px] font-medium">
+            <input className="size-4 accent-accent" type="checkbox" checked={sso.auto_create} onChange={(e) => setSSO({ ...sso, auto_create: e.target.checked })} />
+            {t('Create the account on first login')}
+          </label>
+          <label className="label">
+            {t('Admin group')}
+            <input className="field font-mono" value={sso.admin_group} onChange={set('admin_group')} placeholder="sumigo-admins" />
+            <span className="text-xs font-normal text-muted">{t('Members of this "groups" claim are admins, the others are not. Empty: managed in Sumigo.')}</span>
+          </label>
+          {error && <Notice>{error}</Notice>}
+          {status && <Notice tone="ok">{status}</Notice>}
+        </div>
+        <div className="flex justify-end border-t border-line bg-canvas/60 px-6 py-3">
+          <button className="btn btn-primary" disabled={!!pending}>
+            <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save changes')}</Pending>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 const adminLink = ({ isActive }: { isActive: boolean }) =>
   `rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${isActive ? 'bg-surface font-medium text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`;
 
@@ -604,6 +698,9 @@ export function AdminLayout() {
           </NavLink>
           <NavLink to="/admin/ai" className={adminLink}>
             {t('AI assistant')}
+          </NavLink>
+          <NavLink to="/admin/sso" className={adminLink}>
+            {t('Single sign-on')}
           </NavLink>
         </nav>
       </aside>
