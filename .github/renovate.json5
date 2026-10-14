@@ -1,0 +1,97 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  extends: [
+    'config:best-practices',
+    ':semanticCommits', // match the repo's conventional-commit style
+    ':maintainLockFilesWeekly', // keep transitive deps fresh, not just direct
+    'security:openssf-scorecard', // surface supply-chain risk on PRs
+    'helpers:pinGitHubActionDigests', // pin actions to immutable SHAs
+    'docker:pinDigests', // pin base images to digests
+  ],
+
+  timezone: 'Europe/Paris',
+  schedule: ['before 7am on monday'], // batch routine churn into one window
+  semanticCommitType: 'chore',
+  semanticCommitScope: 'deps',
+  commitMessageLowerCase: 'never',
+  labels: ['dependencies'],
+  rebaseWhen: 'behind-base-branch',
+
+  prConcurrentLimit: 8,
+  prHourlyLimit: 3,
+
+  minimumReleaseAge: '3 days',
+  internalChecksFilter: 'strict',
+
+  postUpdateOptions: ['gomodTidy', 'gomodUpdateImportPaths', 'npmDedupe'],
+
+  osvVulnerabilityAlerts: true,
+  vulnerabilityAlerts: {
+    labels: ['dependencies', 'security'],
+    schedule: ['at any time'],
+    minimumReleaseAge: null,
+    prCreation: 'immediate',
+  },
+
+  automerge: false,
+
+  // Our own image, published by the release workflow.
+  ignoreDeps: ['ghcr.io/ermos/sumigo'],
+
+  packageRules: [
+    {
+      matchUpdateTypes: ['major'],
+      labels: ['dependencies', 'major'],
+      minimumReleaseAge: '7 days',
+    },
+
+    {
+      matchUpdateTypes: ['patch', 'pin', 'digest'],
+      groupName: 'all non-major dependencies',
+      groupSlug: 'all-non-major',
+    },
+    {
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '!/^v?0\\./',
+      groupName: 'all non-major dependencies',
+      groupSlug: 'all-non-major',
+    },
+    // 0.x minor bumps are breaking under semver: keep them out of the bulk.
+    {
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '/^v?0\\./',
+      labels: ['dependencies', 'breaking'],
+    },
+
+    // Coupled toolchains: majors land together so a partial bump can't desync.
+    {
+      groupName: 'react',
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['react', 'react-dom', '@types/react', '@types/react-dom'],
+    },
+    {
+      groupName: 'codemirror',
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['codemirror', '@codemirror/**'],
+    },
+    {
+      groupName: 'tailwind',
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['tailwindcss', '@tailwindcss/**'],
+    },
+    {
+      groupName: 'docusaurus',
+      matchUpdateTypes: ['major'],
+      matchPackageNames: ['@docusaurus/**'],
+    },
+
+    // Go itself: track the toolchain but never auto-bump the language major.
+    {
+      matchManagers: ['gomod'],
+      matchDepTypes: ['golang'],
+      matchUpdateTypes: ['major'],
+      enabled: false,
+    },
+  ],
+}
