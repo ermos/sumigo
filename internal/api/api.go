@@ -237,13 +237,30 @@ func (a *API) logout(w http.ResponseWriter, r *http.Request) {
 
 // --- users (admin)
 
+// listUsers returns every user with the sites they open (admins open them all, so theirs is empty).
 func (a *API) listUsers(w http.ResponseWriter, _ *http.Request) {
 	users, err := a.Store.ListUsers()
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, users)
+	access, err := a.Store.AllAccess()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	type userSites struct {
+		store.User
+		Sites []store.SiteRole `json:"sites"`
+	}
+	out := make([]userSites, len(users))
+	for i, u := range users {
+		out[i] = userSites{u, access[u.ID]}
+		if u.IsAdmin || out[i].Sites == nil {
+			out[i].Sites = []store.SiteRole{}
+		}
+	}
+	writeJSON(w, out)
 }
 
 func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {

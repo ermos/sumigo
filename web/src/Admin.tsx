@@ -232,16 +232,19 @@ export function SiteForm() {
   );
 }
 
+// UserRow is a user of the admin list, with the sites they were given a role on (none for admins: all sites).
+type UserRow = User & { sites: { site_id: number; name: string; role: Role }[] };
+
 export function Users() {
   const { me } = useCtx();
   const [run, pending] = useAction();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [editing, setEditing] = useState<(User & { password: string; temporary: boolean }) | null>(null);
   const [error, setError] = useState('');
   // The generated temporary password, shown once after saving.
   const [created, setCreated] = useState<{ name: string; password: string } | null>(null);
 
-  const load = () => api<User[]>('GET', '/users').then(setUsers);
+  const load = () => api<UserRow[]>('GET', '/users').then(setUsers);
   useEffect(() => {
     load();
   }, []);
@@ -360,8 +363,26 @@ export function Users() {
           <tbody className="divide-y divide-line">
             {users.map((u) => (
               <tr key={u.id}>
-                <td className="px-4 py-3 font-medium">
-                  {u.name} {u.must_change_password && <span className="pill ml-1 bg-canvas text-muted ring-1 ring-line">{t('Temporary password')}</span>}
+                <td className="px-4 py-3">
+                  <div className="font-medium">
+                    {u.name} {u.must_change_password && <span className="pill ml-1 bg-canvas text-muted ring-1 ring-line">{t('Temporary password')}</span>}
+                  </div>
+                  <div className="text-xs text-muted">
+                    {t('Access:')}{' '}
+                    {u.is_admin
+                      ? t('every site')
+                      : u.sites.length
+                        ? u.sites.map((s, i) => (
+                            <span key={s.site_id}>
+                              {i > 0 && ', '}
+                              <Link to={`/sites/${s.site_id}/settings/members`} className="hover:text-accent">
+                                {s.name}
+                              </Link>{' '}
+                              ({t(roleNames[s.role])})
+                            </span>
+                          ))
+                        : t('no site')}
+                  </div>
                 </td>
                 <td className="hidden px-4 py-3 text-muted sm:table-cell">{u.email}</td>
                 <td className="px-4 py-3">{u.is_admin ? <span className="pill bg-accent-soft text-accent">{t('Admin')}</span> : <span className="text-muted">{t('Member')}</span>}</td>
