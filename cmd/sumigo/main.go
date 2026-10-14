@@ -38,7 +38,7 @@ func main() {
 	}
 	defer func() { _ = st.Close() }()
 
-	a := &api.API{Store: st, NewForge: forge.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
+	a := &api.API{Store: st, NewForge: forge.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") != "false"}
 	if err := a.PrepareSetup(); err != nil {
 		log.Fatal(err)
 	}

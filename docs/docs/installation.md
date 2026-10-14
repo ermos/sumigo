@@ -36,7 +36,7 @@ set -a; . ./.env; set +a; ./bin/sumigo
 | `SECRET_KEY` | required | 16 characters or more. Encrypts the secrets stored in the database. |
 | `DATABASE_PATH` | `sumigo.db` (`/data/sumigo.db` in Docker) | SQLite database file. |
 | `PORT` | `8080` | HTTP port. |
-| `SECURE_COOKIE` | `false` | Set to `true` when Sumigo is served over HTTPS. |
+| `SECURE_COOKIE` | `true` | The session cookie is only sent over HTTPS (browsers also accept it on `http://localhost`). Set to `false` only to reach Sumigo over plain HTTP from another host, such as a LAN IP. |
 
 ## First start
 
@@ -52,7 +52,7 @@ Then add a site: Administration > Sites > Add a site, with the repository and an
 
 ## Behind a reverse proxy
 
-Serve Sumigo over HTTPS behind a reverse proxy (Caddy, Traefik, nginx) and set `SECURE_COOKIE=true`. For sites opened on their own domain, see [Custom domains](guides/custom-domains.md).
+Serve Sumigo over HTTPS behind a reverse proxy (Caddy, Traefik, nginx). The proxy must send the `X-Forwarded-Proto` header, used to build the single sign-on redirect URI: Caddy and Traefik do by default, with nginx add `proxy_set_header X-Forwarded-Proto $scheme;`. For sites opened on their own domain, see [Custom domains](guides/custom-domains.md).
 
 ## Development
 
