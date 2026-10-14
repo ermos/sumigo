@@ -444,3 +444,79 @@ func TestSiteRepoFollowsTheForge(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomDomainsOpenASiteAndAllowCORSLive(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"Blog", "Shop"} {
+		if err := st.SaveSite(&store.Site{Name: name, Repo: "acme/" + name, Branch: "main", Workflow: "direct"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	call := func(method, path, body string, header map[string]string) *http.Response {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		for k, v := range header {
+			req.Header.Set(k, v)
+		}
+		if k, ok := header["Host"]; ok {
+			req.Host = k
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	allowed := func() string {
+		return call(http.MethodGet, "/api/me", "", map[string]string{"Origin": "https://cms.acme.io"}).Header.Get("Access-Control-Allow-Origin")
+	}
+
+	if got := allowed(); got != "" {
+		t.Fatalf("unknown origin allowed: %q", got)
+	}
+	if res := call(http.MethodPut, "/api/sites/1", `{"name":"S","repo":"acme/s","domains":["https://CMS.acme.io/","bad domain"]}`, nil); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid domain accepted: %d", res.StatusCode)
+	}
+	if res := call(http.MethodPut, "/api/sites/1", `{"name":"S","repo":"acme/s","domains":["https://CMS.acme.io/"]}`, nil); res.StatusCode != http.StatusOK {
+		t.Fatalf("set domains: %d", res.StatusCode)
+	}
+	if res := call(http.MethodPost, "/api/sites", `{"name":"New","repo":"acme/new","domains":["cms.acme.io"]}`, nil); res.StatusCode != http.StatusConflict {
+		t.Fatalf("new site with a taken domain: %d", res.StatusCode)
+	}
+	if sites, _ := st.ListSites(admin); len(sites) != 2 {
+		t.Fatalf("rejected domain left a site behind: %d sites", len(sites))
+	}
+	if got := allowed(); got != "https://cms.acme.io" {
+		t.Fatalf("declared origin not allowed right away: %q", got)
+	}
+	if res := call(http.MethodPut, "/api/sites/2", `{"name":"S","repo":"acme/s","domains":["cms.acme.io"]}`, nil); res.StatusCode != http.StatusConflict {
+		t.Fatalf("domain of another site: %d", res.StatusCode)
+	}
+	if res := call(http.MethodGet, "/api/domains/check?domain=cms.acme.io", "", nil); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("check declared domain: %d", res.StatusCode)
+	}
+	var cur struct {
+		SiteID int64 `json:"site_id"`
+	}
+	_ = json.NewDecoder(call(http.MethodGet, "/api/domain", "", map[string]string{"Host": "cms.acme.io:443"}).Body).Decode(&cur)
+	if cur.SiteID != 1 {
+		t.Fatalf("domain opens site %d, want 1", cur.SiteID)
+	}
+
+	if res := call(http.MethodPut, "/api/sites/1", `{"name":"S","repo":"acme/s","domains":[]}`, nil); res.StatusCode != http.StatusOK {
+		t.Fatalf("clear domains: %d", res.StatusCode)
+	}
+	if got := allowed(); got != "" {
+		t.Fatalf("removed origin still allowed: %q", got)
+	}
+	if res := call(http.MethodGet, "/api/domains/check?domain=cms.acme.io", "", nil); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("check removed domain: %d", res.StatusCode)
+	}
+}

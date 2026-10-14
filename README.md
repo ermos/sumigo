@@ -37,6 +37,31 @@ Each site picks its forge and, when self-hosted, the instance URL (`https://git.
 
 Listing a collection takes one GraphQL call on GitHub, and one call per entry on GitLab and Forgejo / Gitea (8 in parallel).
 
+## Custom domains
+
+In the site settings, admins list domains (one per line) that open the site directly, for a white-label CMS: `cms.client.com` with a CNAME to the instance. Declared domains may also call the API from the browser (CORS); adding or removing one applies right away.
+
+TLS is left to a reverse proxy. With Caddy, on-demand TLS issues a certificate only for the declared domains:
+
+```caddy
+{
+	on_demand_tls {
+		ask http://localhost:8080/api/domains/check
+	}
+}
+
+cms.example.com {
+	reverse_proxy localhost:8080
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy localhost:8080
+}
+```
+
 ## `sumigo.yml`
 
 Each site repository declares its content model in a `sumigo.yml` at its root (Decap CMS format). Full reference: [docs/sumigo-yml.md](docs/sumigo-yml.md).
