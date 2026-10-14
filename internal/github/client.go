@@ -186,6 +186,8 @@ type Pull struct {
 		Login string `json:"login"`
 	} `json:"user"`
 	UpdatedAt time.Time `json:"updated_at"`
+	// ScheduledAt is set by the CMS, not GitHub: when the draft gets published on its own.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
 }
 
 // ListPulls returns open pull requests whose head branch starts with prefix.
@@ -298,4 +300,35 @@ func (c *Client) graphql(ctx context.Context, query string, vars map[string]any,
 		return &Error{Status: res.StatusCode, Message: res.Status}
 	}
 	return json.NewDecoder(res.Body).Decode(out)
+}
+
+type Commit struct {
+	SHA     string    `json:"sha"`
+	Message string    `json:"message"`
+	Author  string    `json:"author"`
+	Date    time.Time `json:"date"`
+}
+
+// ListCommits returns the last 30 commits that touched path on ref, newest first.
+func (c *Client) ListCommits(ctx context.Context, path, ref string) ([]Commit, error) {
+	var raw []struct {
+		SHA    string `json:"sha"`
+		Commit struct {
+			Message string `json:"message"`
+			Author  struct {
+				Name string    `json:"name"`
+				Date time.Time `json:"date"`
+			} `json:"author"`
+		} `json:"commit"`
+	}
+	q := url.Values{"path": {path}, "sha": {ref}, "per_page": {"30"}}
+	if err := c.do(ctx, http.MethodGet, "/commits?"+q.Encode(), nil, &raw); err != nil {
+		return nil, err
+	}
+	commits := make([]Commit, len(raw))
+	for i, r := range raw {
+		msg, _, _ := strings.Cut(r.Commit.Message, "\n")
+		commits[i] = Commit{SHA: r.SHA, Message: msg, Author: r.Commit.Author.Name, Date: r.Commit.Author.Date}
+	}
+	return commits, nil
 }

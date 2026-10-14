@@ -108,7 +108,15 @@ export const formatDate = (d?: string) => {
       });
 };
 
-export const DraftPill = ({ pull }: { pull: Pull }) => <span className="pill bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/25">{t('Draft #{n}', { n: pull.number })}</span>;
+export const formatDateTime = (d: string) => new Date(d).toLocaleString(lang, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// DraftPill marks an entry with unpublished changes, and when they go live on their own.
+export const DraftPill = ({ pull }: { pull: Pull }) =>
+  pull.scheduled_at ? (
+    <span className="pill bg-accent-soft text-accent ring-1 ring-accent/25">{t('Scheduled {date}', { date: formatDateTime(pull.scheduled_at) })}</span>
+  ) : (
+    <span className="pill bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/25">{t('Draft #{n}', { n: pull.number })}</span>
+  );
 
 export function CollectionView() {
   const site = useSite();
@@ -211,6 +219,7 @@ export function PullsView() {
                     user: p.user.login,
                     date: new Date(p.updated_at).toLocaleString(lang),
                   })}
+                  {p.scheduled_at && <span className="ml-2 font-medium text-accent">{t('Scheduled {date}', { date: formatDateTime(p.scheduled_at) })}</span>}
                 </div>
               </div>
               <a className="btn" href={p.html_url} target="_blank" rel="noreferrer">

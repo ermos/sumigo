@@ -9,6 +9,9 @@ Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages
 - **Publishing** per site:
   - `direct` (open): editors and publishers can publish.
   - `pr` (review): editors only save drafts, publishers publish them.
+- **Scheduled publishing**: a draft can be published at a set date. The server merges it then, as the user who scheduled it, even with nobody in the CMS.
+- **History**: every version of an entry (its commits) can be previewed and restored into the editor.
+- **AI assistant**: suggests field values (titles, descriptions) and proofreads Markdown. Works with Anthropic, OpenAI, Mistral, Google Gemini, OpenRouter, or any OpenAI-compatible API (Ollama…). An admin picks the provider and stores its API key (encrypted, never sent to the browser) in Administration > AI assistant, then turns it on per site.
 - The content model lives **in the target repo**, in a Decap CMS style `sumigo.yml` at the repository root ([reference](docs/sumigo-yml.md)). Entries are Markdown with YAML front matter.
 - Listing a collection reads every entry (and every PR draft) in **one GraphQL call**, so the list shows titles and dates.
 

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ermos/sumigo/internal/ai"
 	"github.com/ermos/sumigo/internal/content"
 	"github.com/ermos/sumigo/internal/github"
 	"github.com/ermos/sumigo/internal/store"
@@ -26,6 +27,8 @@ type API struct {
 	Store *store.Store
 	// NewGitHub builds a client for a repo; replaceable in tests.
 	NewGitHub func(token, repo string) *github.Client
+	// NewAI builds the AI assistant client; replaceable in tests.
+	NewAI func(ai.Config) *ai.Client
 	// SecureCookie sets the Secure flag on the session cookie (enable behind HTTPS).
 	SecureCookie bool
 
@@ -47,6 +50,9 @@ func (a *API) Handler() http.Handler {
 
 	auth("GET /api/me", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, userFrom(r)) })
 
+	admin("GET /api/settings/ai", a.getAI)
+	admin("PUT /api/settings/ai", a.saveAI)
+
 	admin("GET /api/users", a.listUsers)
 	admin("POST /api/users", a.saveUser)
 	admin("PUT /api/users/{id}", a.saveUser)
@@ -66,12 +72,17 @@ func (a *API) Handler() http.Handler {
 	auth("GET /api/sites/{site}/collections/{col}/entries/{slug}", a.getEntry)
 	auth("PUT /api/sites/{site}/collections/{col}/entries/{slug}", a.saveEntry)
 	auth("DELETE /api/sites/{site}/collections/{col}/entries/{slug}", a.deleteEntry)
+	auth("GET /api/sites/{site}/collections/{col}/entries/{slug}/history", a.entryHistory)
+	auth("GET /api/sites/{site}/collections/{col}/entries/{slug}/history/{sha}", a.entryVersion)
+	auth("POST /api/sites/{site}/collections/{col}/ai", a.assist)
 	auth("GET /api/sites/{site}/media", a.listMedia)
 	auth("POST /api/sites/{site}/media", a.uploadMedia)
 	auth("GET /api/sites/{site}/media/{name}", a.getMedia)
 	auth("DELETE /api/sites/{site}/media/{name}", a.deleteMedia)
 	auth("GET /api/sites/{site}/pulls", a.listPulls)
 	auth("POST /api/sites/{site}/pulls/{number}/merge", a.mergePull)
+	auth("PUT /api/sites/{site}/pulls/{number}/schedule", a.schedulePull)
+	auth("DELETE /api/sites/{site}/pulls/{number}/schedule", a.unschedulePull)
 	return mux
 }
 
@@ -274,7 +285,10 @@ func (a *API) getSite(w http.ResponseWriter, r *http.Request) {
 		*store.Site
 		Config      *content.Config `json:"config"`
 		ConfigError string          `json:"config_error,omitempty"`
+		// AI is true when the editor can use the assistant: on for the instance and the site.
+		AI bool `json:"ai"`
 	}{Site: sc.site}
+	_, out.AI = a.aiReady(sc.site)
 	if sc.gh == nil {
 		out.ConfigError = "no GitHub token configured"
 	} else if cfg, err := a.config(r.Context(), sc, false); err != nil {
