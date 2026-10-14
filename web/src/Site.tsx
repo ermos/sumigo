@@ -4,7 +4,7 @@ import { api, can, EntrySummary, forgeNames, treeURL, MediaFile, mediaSrc, Pull,
 import { Ctx, useCtx } from './App';
 
 import { useCached } from './cache';
-import { Pending, Spinner, useAction } from './ui';
+import { Pending, Spinner, useAction, useConfirm } from './ui';
 import { lang, t } from './i18n';
 
 export const entriesKey = (siteId: number, col?: string) => `entries:${siteId}:${col}`;
@@ -253,12 +253,9 @@ export function PullsView() {
   useEffect(load, [site.id]);
 
   const [run, pending] = useAction();
-  const merge = (p: Pull) =>
-    confirm(
-      t('Publish "{title}"? This squash-merges the pull request.', {
-        title: p.title,
-      }),
-    ) &&
+  const [ask, confirmDialog] = useConfirm();
+  const merge = async (p: Pull) =>
+    (await ask({ title: t('Publish "{title}"? This squash-merges the pull request.', { title: p.title }), action: t('Publish') })) &&
     run(String(p.number), async () => {
       try {
         await api('POST', `/sites/${site.id}/pulls/${p.number}/merge`);
@@ -270,6 +267,7 @@ export function PullsView() {
 
   return (
     <>
+      {confirmDialog}
       <div className="mb-5">
         <h1>{t('Workflow')}</h1>
         <p className="text-muted">{t('Drafts waiting to be published. Each one is a pull request on {forge}.', { forge: forgeNames[site.forge] })}</p>
@@ -352,8 +350,14 @@ export function MediaView() {
   };
 
   const [run, deleting] = useAction();
-  const remove = (f: MediaFile) =>
-    confirm(`${t('Delete {name}?', { name: f.name })}${f.used ? ` ${t('An entry still uses it, the image will break there.')}` : ''} ${t('This commits the deletion.')}`) &&
+  const [ask, confirmDialog] = useConfirm();
+  const remove = async (f: MediaFile) =>
+    (await ask({
+      title: t('Delete {name}?', { name: f.name }),
+      text: `${f.used ? `${t('An entry still uses it, the image will break there.')} ` : ''}${t('This commits the deletion.')}`,
+      action: t('Delete'),
+      danger: true,
+    })) &&
     run(f.name, async () => {
       setError('');
       try {
@@ -371,6 +375,7 @@ export function MediaView() {
 
   return (
     <>
+      {confirmDialog}
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <h1 className="mr-auto">
           {t('Media')}

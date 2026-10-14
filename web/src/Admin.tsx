@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import { Access, AISettings, api, OIDCSettings, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
 import { Monogram, roleNames, useCtx } from './App';
 import { t } from './i18n';
-import { Pending, useAction } from './ui';
+import { Pending, useAction, useConfirm } from './ui';
 import { Empty, Notice } from './Site';
 
 const emptySite: Site = {
@@ -98,15 +98,9 @@ export function SiteForm() {
     }
   };
 
+  const [ask, confirmDialog] = useConfirm();
   const remove = async () => {
-    if (
-      !confirm(
-        t('Delete site {name}? The repository is not touched.', {
-          name: site.name,
-        }),
-      )
-    )
-      return;
+    if (!(await ask({ title: t('Delete site {name}? The repository is not touched.', { name: site.name }), action: t('Delete site'), danger: true }))) return;
     await api('DELETE', `/sites/${site.id}`);
     reloadSites();
     navigate('/');
@@ -117,6 +111,7 @@ export function SiteForm() {
 
   return (
     <div className="mx-auto max-w-3xl">
+      {confirmDialog}
       <div className="mb-6">
         {site.id > 0 && (
           <Link to={`/sites/${site.id}`} className="text-[13px] text-muted hover:text-accent">
@@ -284,14 +279,16 @@ export function Users() {
     setEditing(u ? { ...u, password: '' } : { id: 0, email: '', name: '', is_admin: false, password: '' });
   };
 
+  const [ask, confirmDialog] = useConfirm();
   const remove = async (u: User) => {
-    if (!confirm(t('Delete {name}?', { name: u.name }))) return;
+    if (!(await ask({ title: t('Delete {name}?', { name: u.name }), action: t('Delete'), danger: true }))) return;
     await api('DELETE', `/users/${u.id}`);
     load();
   };
 
   return (
     <div className="max-w-3xl">
+      {confirmDialog}
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1>{t('Users')}</h1>
