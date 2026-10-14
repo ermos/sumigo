@@ -19,7 +19,7 @@ One small **Go binary** with the web app embedded, and **SQLite**. No database s
 
 **Sumigo** is a coinage from two Japanese words: **墨** (*sumi*), the ink of calligraphy and *sumi-e* painting, ground from an ink stick and laid down with a brush, and **語** (*go*), a word, a language, as in *nihon-go*, "the Japanese language". Ink and words: the stuff writers are made of. ✍️
 
-And *go* winks at the other language behind the name: Sumigo is written in **Go**. 🐹
+The *go* has a double meaning: it is also there because the Sumigo server is written in **[Go](https://go.dev)**. Two languages in one name: the Japanese word, and the one the code speaks. 🐹
 
 ---
 
