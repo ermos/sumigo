@@ -413,6 +413,40 @@ func (s *Store) schedules(where string, arg any) ([]Schedule, error) {
 	return list, rows.Err()
 }
 
+// --- Autosaves
+
+// Autosave is the editor form of a user, kept between sessions without a commit.
+type Autosave struct {
+	Data      json.RawMessage `json:"data"`
+	UpdatedAt time.Time       `json:"updated_at"`
+}
+
+func (s *Store) SetAutosave(siteID, userID int64, col, slug string, data json.RawMessage) error {
+	_, err := s.db.Exec(`INSERT INTO autosaves (site_id, user_id, collection, slug, data, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (site_id, user_id, collection, slug) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
+		siteID, userID, col, slug, string(data), time.Now().Unix())
+	return err
+}
+
+// GetAutosave returns nil when the user has nothing autosaved for this entry.
+func (s *Store) GetAutosave(siteID, userID int64, col, slug string) (*Autosave, error) {
+	var data string
+	var at int64
+	err := s.db.QueryRow(`SELECT data, updated_at FROM autosaves WHERE site_id = ? AND user_id = ? AND collection = ? AND slug = ?`, siteID, userID, col, slug).Scan(&data, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &Autosave{Data: json.RawMessage(data), UpdatedAt: time.Unix(at, 0)}, nil
+}
+
+func (s *Store) DeleteAutosave(siteID, userID int64, col, slug string) error {
+	_, err := s.db.Exec(`DELETE FROM autosaves WHERE site_id = ? AND user_id = ? AND collection = ? AND slug = ?`, siteID, userID, col, slug)
+	return err
+}
+
 // --- AI settings
 
 // AISettings configure the AI assistant for the whole instance. Sites opt in on top of it.

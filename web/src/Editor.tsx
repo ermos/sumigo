@@ -32,8 +32,13 @@ export default function Editor() {
   // Bumped on restore so fields holding their own text state start over.
   const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
+  const leaveDialog = useRef<HTMLDialogElement>(null);
   const deleteDialog = useRef<HTMLDialogElement>(null);
   const base = `/sites/${site.id}/collections/${col}/entries`;
+  // The form is autosaved in the database every few seconds, without a commit, and offered back on the next visit.
+  const autosaveUrl = `/sites/${site.id}/collections/${col}/autosave?slug=${encodeURIComponent(slug ?? '')}`;
+  const [autosave, setAutosave] = useState<{ data: Data; updated_at: string } | null>(null);
+  const [autosaved, setAutosaved] = useState(false);
 
   useEffect(() => {
     if (!slug) {
@@ -60,6 +65,29 @@ export default function Editor() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [base, slug, collection]);
+
+  useEffect(() => {
+    setAutosave(null);
+    if (!can(site.role, 'editor')) return;
+    let live = true;
+    api<{ data: Data; updated_at: string } | null>('GET', autosaveUrl)
+      .then((a) => live && setAutosave(a))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [autosaveUrl, site.role]);
+
+  useEffect(() => {
+    if (!dirty || !data) return;
+    // Plain fetch: a background save must not flash the progress bar on every pause.
+    const timer = setTimeout(() => {
+      fetch('/api' + autosaveUrl, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data }) })
+        .then((r) => r.ok && setAutosaved(true))
+        .catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [data, dirty, autosaveUrl]);
 
   // updateList keeps the cached collection list in sync after a save or a delete.
   const updateList = (fn: (list: EntrySummary[]) => EntrySummary[]) => {
@@ -151,6 +179,8 @@ export default function Editor() {
     edited.current = true;
     setData((d) => ({ ...d, [name]: v }));
     setDirty(true);
+    setAutosaved(false);
+    setAutosave(null);
     setStatus('');
   };
   const assist =
@@ -168,14 +198,24 @@ export default function Editor() {
     setData(version);
     setFormKey((k) => k + 1);
     setDirty(true);
+    setAutosaved(false);
+    setAutosave(null);
     setStatus('');
     setPanel('preview');
+  };
+  const discardAutosave = () => {
+    setAutosave(null);
+    api('DELETE', autosaveUrl).catch(() => {});
   };
   const togglePanel = (p: 'preview' | 'history') => setPanel(panel === p ? null : p);
   const back = `/sites/${site.id}/c/${col}`;
   const title = (data && collection.identifier_field && String(data[collection.identifier_field] ?? '')) || (data && typeof data.title === 'string' && data.title) || slug;
 
-  const leave = (e: { preventDefault: () => void }) => dirty && !confirm(t('Leave without saving? Your changes will be lost.')) && e.preventDefault();
+  const leave = (e: { preventDefault: () => void }) => {
+    if (!dirty) return;
+    e.preventDefault();
+    leaveDialog.current?.showModal();
+  };
 
   return (
     <form ref={form} onSubmit={save} className="flex h-screen flex-col">
@@ -196,7 +236,7 @@ export default function Editor() {
         {dirty ? (
           <span className="hidden items-center gap-1.5 text-[13px] text-muted sm:flex">
             <span className="size-1.5 rounded-full bg-amber-500" />
-            {t('Unsaved changes')}
+            {t(autosaved ? 'Autosaved' : 'Unsaved changes')}
           </span>
         ) : (
           status && <span className="hidden text-[13px] text-ok sm:inline">{status}</span>
@@ -269,6 +309,30 @@ export default function Editor() {
       {error && (
         <div className="shrink-0 px-4 pt-3">
           <Notice>{error}</Notice>
+        </div>
+      )}
+      <dialog ref={leaveDialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30">
+        <div className="flex flex-col gap-4 p-6">
+          <h2>{t('Leave without saving?')}</h2>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" autoFocus onClick={() => leaveDialog.current?.close()}>
+              {t('Cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => navigate(back)}>
+              {t('Leave')}
+            </button>
+          </div>
+        </div>
+      </dialog>
+      {autosave && !readOnly && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2 text-[13px]">
+          <span className="flex-1 text-muted">{t('Unsaved version from {date}', { date: formatDateTime(autosave.updated_at) })}</span>
+          <button type="button" className="btn" onClick={discardAutosave}>
+            {t('Discard')}
+          </button>
+          <button type="button" className="btn btn-primary" onClick={() => restore(autosave.data)}>
+            {t('Restore')}
+          </button>
         </div>
       )}
       {data ? (
