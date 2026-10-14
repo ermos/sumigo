@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { Access, AISettings, api, OIDCSettings, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
 import { Monogram, roleNames, useCtx } from './App';
@@ -439,82 +439,150 @@ export function SiteDomains() {
   );
 }
 
+// SiteMembers lists who opens the site: admins (all sites), then the users given a role here.
+// Every change is saved right away.
 export function SiteMembers() {
   const { siteId } = useParams();
-  const { sites } = useCtx();
-  const [run, pending] = useAction();
-  const site = sites.find((s) => String(s.id) === siteId);
   const [users, setUsers] = useState<User[]>([]);
   const [access, setAccess] = useState<Access[]>([]);
-  const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [pick, setPick] = useState<{ user_id: number; role: Role }>({ user_id: 0, role: 'editor' });
 
   useEffect(() => {
     api<User[]>('GET', '/users').then(setUsers);
     api<Access[]>('GET', `/sites/${siteId}/access`).then(setAccess);
   }, [siteId]);
 
-  const roleOf = (id: number) => access.find((a) => a.user_id === id)?.role ?? '';
-  const setRole = (id: number, role: string) => {
-    setStatus('');
-    setAccess((list) => [...list.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role: role as Role }] : [])]);
-  };
-  const save = async () => {
+  const save = async (next: Access[]) => {
     setError('');
+    setBusy(true);
     try {
-      await api('PUT', `/sites/${siteId}/access`, access);
-      setStatus(t('Members saved'));
+      await api('PUT', `/sites/${siteId}/access`, next);
+      setAccess(next);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
     }
   };
-  // Admins are listed too: they open every site, so their role here is fixed.
-  const members = [...users].sort((a, b) => Number(b.is_admin) - Number(a.is_admin));
+  const setRole = (id: number, role: Role | null) => save([...access.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role }] : [])]);
+
+  const admins = users.filter((u) => u.is_admin);
+  const members = access.map((a) => ({ user: users.find((u) => u.id === a.user_id), role: a.role })).filter((m) => m.user && !m.user.is_admin);
+  const candidates = users.filter((u) => !u.is_admin && !access.some((a) => a.user_id === u.id));
+  const openAdd = () => {
+    setPick({ user_id: candidates[0]?.id ?? 0, role: 'editor' });
+    dialog.current?.showModal();
+  };
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pick.user_id && (await setRole(pick.user_id, pick.role))) dialog.current?.close();
+  };
+
+  const row = (u: User, right: ReactNode) => (
+    <li key={u.id} className="flex items-center gap-3 px-5 py-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-canvas text-xs font-semibold text-muted">{u.name.charAt(0).toUpperCase()}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium">{u.name}</div>
+        <div className="truncate text-xs text-muted">{u.email}</div>
+      </div>
+      {right}
+    </li>
+  );
+  const roleSelect = (value: Role, onChange: (r: Role) => void, label: string) => (
+    <select className="field w-40 py-1" value={value} onChange={(e) => onChange(e.target.value as Role)} aria-label={label} disabled={busy}>
+      {(['viewer', 'editor', 'publisher'] as const).map((r) => (
+        <option key={r} value={r}>
+          {t(roleNames[r])}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div className="max-w-3xl">
       <PageHeader title={t('Members')}>
-        <Link to="/admin/users" className="btn">
-          {t('Create a user')}
-        </Link>
+        <button type="button" className="btn btn-primary" onClick={openAdd}>
+          {t('Add a member')}
+        </button>
       </PageHeader>
-      <div className="panel">
-        <ul className="divide-y divide-line">
-          {members.map((u) => (
-            <li key={u.id} className="flex items-center gap-3 px-5 py-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-canvas text-xs font-semibold text-muted">{u.name.charAt(0).toUpperCase()}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{u.name}</div>
-                <div className="truncate text-xs text-muted">{u.email}</div>
-              </div>
-              {u.is_admin ? (
-                <span className="pill w-40 justify-center bg-accent-soft text-accent" title={t('Admins open every site')}>
-                  {t('Admin')}
-                </span>
-              ) : (
-                <select className="field w-40 py-1" value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)} aria-label={t('Role of {name}', { name: u.name })}>
-                  <option value="">{t('No access')}</option>
-                  {(['viewer', 'editor', 'publisher'] as const).map((r) => (
-                    <option key={r} value={r}>
-                      {t(roleNames[r])}
+      {error && (
+        <div className="mb-4">
+          <Notice>{error}</Notice>
+        </div>
+      )}
+      <ul className="panel divide-y divide-line">
+        {admins.map((u) =>
+          row(
+            u,
+            <span className="pill w-40 justify-center bg-accent-soft text-accent" title={t('Admins open every site')}>
+              {t('Admin')}
+            </span>,
+          ),
+        )}
+        {members.map(({ user, role }) =>
+          row(
+            user!,
+            <>
+              {roleSelect(role, (r) => setRole(user!.id, r), t('Role of {name}', { name: user!.name }))}
+              <button type="button" className="btn btn-danger py-1" onClick={() => setRole(user!.id, null)} disabled={busy} aria-label={t('Remove {name}', { name: user!.name })}>
+                {t('Remove')}
+              </button>
+            </>,
+          ),
+        )}
+      </ul>
+
+      <dialog ref={dialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30">
+        <form className="flex flex-col gap-4 p-6" onSubmit={add}>
+          <h2>{t('Add a member')}</h2>
+          {candidates.length ? (
+            <>
+              <label className="label">
+                {t('User')}
+                <select className="field" value={pick.user_id} onChange={(e) => setPick({ ...pick, user_id: Number(e.target.value) })} autoFocus>
+                  {candidates.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.email})
                     </option>
                   ))}
                 </select>
-              )}
-            </li>
-          ))}
-        </ul>
-        {/* Only roles of non-admin users can change. */}
-        {members.some((u) => !u.is_admin) && (
-          <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
-            {error && <span className="text-[13px] text-danger">{error}</span>}
-            {status && <span className="text-[13px] text-ok">{status}</span>}
-            <button className="btn btn-primary" onClick={() => run('save', save)} disabled={!!pending}>
-              <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save members')}</Pending>
-            </button>
+              </label>
+              <label className="label">
+                {t('Role')}
+                {roleSelect(pick.role, (role) => setPick({ ...pick, role }), t('Role'))}
+              </label>
+            </>
+          ) : (
+            <p className="text-[13px] text-muted">{t('Every user is already a member.')}</p>
+          )}
+          <div className="flex justify-end gap-2">
+            {candidates.length ? (
+              <>
+                <button type="button" className="btn" onClick={() => dialog.current?.close()}>
+                  {t('Cancel')}
+                </button>
+                <button className="btn btn-primary" disabled={busy}>
+                  <Pending on={busy}>{t('Add')}</Pending>
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="btn" onClick={() => dialog.current?.close()}>
+                  {t('Cancel')}
+                </button>
+                <Link to="/admin/users" className="btn btn-primary">
+                  {t('Create a user')}
+                </Link>
+              </>
+            )}
           </div>
-        )}
-      </div>
+        </form>
+      </dialog>
     </div>
   );
 }
