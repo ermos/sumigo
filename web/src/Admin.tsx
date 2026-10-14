@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { Access, AISettings, api, OIDCSettings, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
 import { Monogram, roleNames, useCtx } from './App';
@@ -232,16 +232,19 @@ export function SiteForm() {
   );
 }
 
+// UserRow is a user of the admin list, with the sites they were given a role on (none for admins: all sites).
+type UserRow = User & { sites: { site_id: number; name: string; role: Role }[] };
+
 export function Users() {
   const { me } = useCtx();
   const [run, pending] = useAction();
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [editing, setEditing] = useState<(User & { password: string; temporary: boolean }) | null>(null);
   const [error, setError] = useState('');
   // The generated temporary password, shown once after saving.
   const [created, setCreated] = useState<{ name: string; password: string } | null>(null);
 
-  const load = () => api<User[]>('GET', '/users').then(setUsers);
+  const load = () => api<UserRow[]>('GET', '/users').then(setUsers);
   useEffect(() => {
     load();
   }, []);
@@ -360,8 +363,26 @@ export function Users() {
           <tbody className="divide-y divide-line">
             {users.map((u) => (
               <tr key={u.id}>
-                <td className="px-4 py-3 font-medium">
-                  {u.name} {u.must_change_password && <span className="pill ml-1 bg-canvas text-muted ring-1 ring-line">{t('Temporary password')}</span>}
+                <td className="px-4 py-3">
+                  <div className="font-medium">
+                    {u.name} {u.must_change_password && <span className="pill ml-1 bg-canvas text-muted ring-1 ring-line">{t('Temporary password')}</span>}
+                  </div>
+                  <div className="text-xs text-muted">
+                    {t('Access:')}{' '}
+                    {u.is_admin
+                      ? t('every site')
+                      : u.sites?.length
+                        ? u.sites.map((s, i) => (
+                            <span key={s.site_id}>
+                              {i > 0 && ', '}
+                              <Link to={`/sites/${s.site_id}/settings/members`} className="hover:text-accent">
+                                {s.name}
+                              </Link>{' '}
+                              ({t(roleNames[s.role])})
+                            </span>
+                          ))
+                        : t('no site')}
+                  </div>
                 </td>
                 <td className="hidden px-4 py-3 text-muted sm:table-cell">{u.email}</td>
                 <td className="px-4 py-3">{u.is_admin ? <span className="pill bg-accent-soft text-accent">{t('Admin')}</span> : <span className="text-muted">{t('Member')}</span>}</td>
@@ -439,88 +460,192 @@ export function SiteDomains() {
   );
 }
 
+// SiteMembers lists who opens the site: admins (all sites), then the users given a role here.
+// Every change is saved right away.
 export function SiteMembers() {
   const { siteId } = useParams();
-  const { sites } = useCtx();
-  const [run, pending] = useAction();
-  const site = sites.find((s) => String(s.id) === siteId);
   const [users, setUsers] = useState<User[]>([]);
   const [access, setAccess] = useState<Access[]>([]);
-  const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
+  // Adding a member: an email first; an unknown email then gets a name and a temporary password.
+  const emptyForm = { step: 'email' as 'email' | 'create' | 'done', email: '', first_name: '', last_name: '', role: 'editor' as Role, password: '', note: '' };
+  const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
     api<User[]>('GET', '/users').then(setUsers);
     api<Access[]>('GET', `/sites/${siteId}/access`).then(setAccess);
   }, [siteId]);
 
-  const roleOf = (id: number) => access.find((a) => a.user_id === id)?.role ?? '';
-  const setRole = (id: number, role: string) => {
-    setStatus('');
-    setAccess((list) => [...list.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role: role as Role }] : [])]);
-  };
-  const save = async () => {
+  const save = async (next: Access[]) => {
     setError('');
+    setBusy(true);
     try {
-      await api('PUT', `/sites/${siteId}/access`, access);
-      setStatus(t('Members saved'));
+      await api('PUT', `/sites/${siteId}/access`, next);
+      setAccess(next);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
+    } finally {
+      setBusy(false);
     }
   };
-  // Admins are listed too: they open every site, so their role here is fixed.
-  const members = [...users].sort((a, b) => Number(b.is_admin) - Number(a.is_admin));
-  const noUser = t('No user to add yet. {link} first.').split('{link}');
+  const setRole = (id: number, role: Role | null) => save([...access.filter((a) => a.user_id !== id), ...(role ? [{ user_id: id, role }] : [])]);
+
+  const admins = users.filter((u) => u.is_admin);
+  const members = access.map((a) => ({ user: users.find((u) => u.id === a.user_id), role: a.role })).filter((m) => m.user && !m.user.is_admin);
+  const openAdd = () => {
+    setError('');
+    setForm(emptyForm);
+    dialog.current?.showModal();
+  };
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (form.step === 'email') {
+      const known = users.find((u) => u.email.toLowerCase() === form.email.trim().toLowerCase());
+      if (!known) return setForm({ ...form, step: 'create' });
+      if (known.is_admin) return setForm({ ...form, note: t('{name} is an admin and already opens every site.', { name: known.name }) });
+      if (await setRole(known.id, form.role)) dialog.current?.close();
+      return;
+    }
+    // Unknown email: create the user with a temporary password, then give them the role.
+    setBusy(true);
+    try {
+      const created = await api<User & { temporary_password: string }>('POST', '/users', { email: form.email.trim(), first_name: form.first_name, last_name: form.last_name, temporary: true });
+      setUsers((list) => [...list, created]);
+      if (await setRole(created.id, form.role)) setForm({ ...form, step: 'done', password: created.temporary_password });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const row = (u: User, right: ReactNode) => (
+    <li key={u.id} className="flex items-center gap-3 px-5 py-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-canvas text-xs font-semibold text-muted">{u.name.charAt(0).toUpperCase()}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium">{u.name}</div>
+        <div className="truncate text-xs text-muted">{u.email}</div>
+      </div>
+      {right}
+    </li>
+  );
+  const roleSelect = (value: Role, onChange: (r: Role) => void, label: string, width = 'w-40 py-1') => (
+    <select className={`field ${width}`} value={value} onChange={(e) => onChange(e.target.value as Role)} aria-label={label} disabled={busy}>
+      {(['viewer', 'editor', 'publisher'] as const).map((r) => (
+        <option key={r} value={r}>
+          {t(roleNames[r])}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title={t('Members')} />
-      <p className="mb-5 -mt-2 text-[13px] text-muted">
-        {t('Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.')}
-      </p>
-      <div className="panel">
-        <ul className="divide-y divide-line">
-          {members.map((u) => (
-            <li key={u.id} className="flex items-center gap-3 px-5 py-3">
-              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-canvas text-xs font-semibold text-muted">{u.name.charAt(0).toUpperCase()}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{u.name}</div>
-                <div className="truncate text-xs text-muted">{u.email}</div>
-              </div>
-              {u.is_admin ? (
-                <span className="pill w-40 justify-center bg-accent-soft text-accent" title={t('Admins open every site')}>
-                  {t('Admin')}
-                </span>
-              ) : (
-                <select className="field w-40 py-1" value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)} aria-label={t('Role of {name}', { name: u.name })}>
-                  <option value="">{t('No access')}</option>
-                  {(['viewer', 'editor', 'publisher'] as const).map((r) => (
-                    <option key={r} value={r}>
-                      {t(roleNames[r])}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </li>
-          ))}
-          {!members.some((u) => !u.is_admin) && (
-            <li className="px-5 py-6 text-center text-[13px] text-muted">
-              {noUser[0]}
-              <Link to="/admin/users" className="text-accent hover:underline">
-                {t('Create a user')}
-              </Link>
-              {noUser[1]}
-            </li>
-          )}
-        </ul>
-        <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
-          {error && <span className="text-[13px] text-danger">{error}</span>}
-          {status && <span className="text-[13px] text-ok">{status}</span>}
-          <button className="btn btn-primary" onClick={() => run('save', save)} disabled={!!pending}>
-            <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save members')}</Pending>
-          </button>
+      <PageHeader title={t('Members')}>
+        <button type="button" className="btn btn-primary" onClick={openAdd}>
+          {t('Add a member')}
+        </button>
+      </PageHeader>
+      {error && (
+        <div className="mb-4">
+          <Notice>{error}</Notice>
         </div>
-      </div>
+      )}
+      <ul className="panel divide-y divide-line">
+        {admins.map((u) =>
+          row(
+            u,
+            <span className="pill w-40 justify-center bg-accent-soft text-accent" title={t('Admins open every site')}>
+              {t('Admin')}
+            </span>,
+          ),
+        )}
+        {members.map(({ user, role }) =>
+          row(
+            user!,
+            <>
+              {roleSelect(role, (r) => setRole(user!.id, r), t('Role of {name}', { name: user!.name }))}
+              <button type="button" className="btn btn-danger py-1" onClick={() => setRole(user!.id, null)} disabled={busy} aria-label={t('Remove {name}', { name: user!.name })}>
+                {t('Remove')}
+              </button>
+            </>,
+          ),
+        )}
+      </ul>
+
+      <dialog ref={dialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30">
+        <form className="flex flex-col gap-4 p-6" onSubmit={add}>
+          <h2>{t('Add a member')}</h2>
+          {form.step === 'done' ? (
+            <>
+              <p className="text-[13px]">{t('Temporary password of {name}, shown once:', { name: `${form.first_name} ${form.last_name}`.trim() })}</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded bg-canvas px-2 py-1.5 font-mono text-sm select-all">{form.password}</code>
+                <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(form.password)}>
+                  {t('Copy')}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <label className="label">
+                {t('Email')}
+                <input
+                  className="field"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value, step: 'email', note: '' })}
+                  required
+                  autoFocus
+                  autoComplete="off"
+                />
+              </label>
+              <label className="label">
+                {t('Role')}
+                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'), 'h-[38px] w-full')}
+              </label>
+              {form.note && <p className="text-[13px] text-muted">{form.note}</p>}
+              {form.step === 'create' && (
+                <>
+                  <p className="text-[13px] text-muted">{t('No account with this email: it is created with a temporary password.')}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="label">
+                      {t('First name')}
+                      <input className="field" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required autoFocus autoComplete="off" />
+                    </label>
+                    <label className="label">
+                      {t('Last name')}
+                      <input className="field" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} autoComplete="off" />
+                    </label>
+                  </div>
+                </>
+              )}
+              {error && <Notice>{error}</Notice>}
+            </>
+          )}
+          <div className="flex justify-end gap-2">
+            {form.step === 'done' ? (
+              <button type="button" className="btn btn-primary" onClick={() => dialog.current?.close()}>
+                {t('Done')}
+              </button>
+            ) : (
+              <>
+                <button type="button" className="btn" onClick={() => dialog.current?.close()}>
+                  {t('Cancel')}
+                </button>
+                <button className="btn btn-primary" disabled={busy}>
+                  <Pending on={busy}>{t(form.step === 'create' ? 'Create and add' : 'Continue')}</Pending>
+                </button>
+              </>
+            )}
+          </div>
+        </form>
+      </dialog>
     </div>
   );
 }

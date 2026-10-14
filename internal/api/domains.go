@@ -71,9 +71,13 @@ func (a *API) checkDomain(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// currentDomain tells the web app which site the domain it is served on opens.
+// currentDomain tells the web app which site the domain it is served on opens: site_id is null on the instance domain.
 func (a *API) currentDomain(w http.ResponseWriter, r *http.Request) {
 	id, err := a.Store.DomainSite(normalizeHost(r.Host))
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, map[string]any{"site_id": nil})
+		return
+	}
 	if err != nil {
 		fail(w, err)
 		return

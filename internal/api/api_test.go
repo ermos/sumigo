@@ -658,3 +658,47 @@ func TestSetupCodeCreatesTheAdminOnce(t *testing.T) {
 		t.Fatalf("setup code with users: %q %v", b.setupCode, err)
 	}
 }
+
+func TestUsersListTheSitesTheyOpen(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	for _, u := range []*store.User{admin, jane} {
+		if err := st.CreateUser(u, "password123"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"Shop", "Blog"} {
+		site := &store.Site{Name: name, Repo: "acme/" + name, Branch: "main", Workflow: "direct"}
+		if err := st.SaveSite(site); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RoleEditor}, {UserID: admin.ID, Role: store.RoleViewer}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/users", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var users []struct {
+		Email string
+		Sites []store.SiteRole
+	}
+	_ = json.NewDecoder(res.Body).Decode(&users)
+	got := map[string]string{}
+	for _, u := range users {
+		for _, s := range u.Sites {
+			got[u.Email] += s.Name + ":" + s.Role + " "
+		}
+	}
+	// Sites by name; an admin opens every site, so no list.
+	if got["jane@acme.io"] != "Blog:editor Shop:editor " || got["root@acme.io"] != "" {
+		t.Fatalf("sites = %v", got)
+	}
+}

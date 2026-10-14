@@ -359,6 +359,32 @@ func (s *Store) ListAccess(siteID int64) ([]Access, error) {
 	return list, rows.Err()
 }
 
+// SiteRole is a site a user opens, with their role on it.
+type SiteRole struct {
+	SiteID int64  `json:"site_id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+}
+
+// AllAccess returns the sites each user was given a role on, by user ID, sites sorted by name.
+func (s *Store) AllAccess() (map[int64][]SiteRole, error) {
+	rows, err := s.db.Query(`SELECT a.user_id, s.id, s.name, a.role FROM site_access a JOIN sites s ON s.id = a.site_id ORDER BY s.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[int64][]SiteRole{}
+	for rows.Next() {
+		var userID int64
+		var sr SiteRole
+		if err := rows.Scan(&userID, &sr.SiteID, &sr.Name, &sr.Role); err != nil {
+			return nil, err
+		}
+		out[userID] = append(out[userID], sr)
+	}
+	return out, rows.Err()
+}
+
 // SetAccess replaces the whole access list of a site.
 func (s *Store) SetAccess(siteID int64, list []Access) error {
 	tx, err := s.db.Begin()
