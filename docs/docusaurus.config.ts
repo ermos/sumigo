@@ -6,6 +6,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Sumigo',
   tagline: 'Self-hosted, multi-site Git CMS',
+  favicon: 'img/favicon.svg', // 🦑 from Noto Emoji (Apache 2.0, see third_party/noto-emoji)
 
   url: 'https://ermos.github.io',
   baseUrl: '/sumigo/',
@@ -48,6 +49,7 @@ const config: Config = {
     },
     navbar: {
       title: 'Sumigo',
+      logo: {alt: 'Sumigo', src: 'img/favicon.svg'},
       items: [
         {type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Docs'},
         {href: 'https://github.com/ermos/sumigo', label: 'GitHub', position: 'right'},
