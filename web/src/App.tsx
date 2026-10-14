@@ -4,7 +4,7 @@ import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
 import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
-import { CollectionView, ContentLayout, MediaView, PullsView, SetupView, SiteHome, SiteLayout } from './Site';
+import { CollectionView, ContentLayout, Loading, MediaView, PullsView, SetupView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 // The sumigo.yml editor brings CodeMirror: loaded only when opened.
 const ConfigEditor = lazy(() => import('./ConfigEditor'));
@@ -90,7 +90,7 @@ export default function App() {
               <Route
                 path="admin/sites/:siteId/config"
                 element={
-                  <Suspense fallback={null}>
+                  <Suspense fallback={<Loading />}>
                     <ConfigEditor />
                   </Suspense>
                 }

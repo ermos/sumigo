@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { basicSetup, EditorView } from 'codemirror';
 import { keymap } from '@codemirror/view';
+import { indentWithTab } from '@codemirror/commands';
 import { yaml } from '@codemirror/lang-yaml';
 import { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete';
 import { Diagnostic, linter } from '@codemirror/lint';
 import { api, HttpError } from './api';
 import { useCtx } from './App';
-import { Notice } from './Site';
+import { Loading, Notice } from './Site';
 import { Pending } from './ui';
 import { suggest } from './yamlcomplete';
 import { t } from './i18n';
@@ -82,7 +83,8 @@ export default function ConfigEditor() {
             yaml(),
             yaml().language.data.of({ autocomplete: complete }),
             check,
-            keymap.of([{ key: 'Mod-s', preventDefault: true, run: () => (saveRef.current(), true) }]),
+            // Tab indents, like in a code editor. Escape then Tab still moves the focus out, for keyboard users.
+            keymap.of([indentWithTab, { key: 'Mod-s', preventDefault: true, run: () => (saveRef.current(), true) }]),
             EditorView.theme({ '&': { fontSize: '13px' }, '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' } }),
           ],
         });
@@ -97,7 +99,8 @@ export default function ConfigEditor() {
 
   return (
     <div className="max-w-5xl">
-      <div className="mb-6 flex flex-wrap items-center gap-3">
+      {/* Sticky under the app header (h-14), so saving stays at hand at the bottom of a long file. */}
+      <div className="sticky top-14 z-10 -mt-3 mb-3 flex flex-wrap items-center gap-3 bg-canvas py-3">
         <div className="mr-auto">
           {site && (
             <Link to={`/admin/sites/${site.id}`} className="text-[13px] text-muted hover:text-accent">
@@ -112,18 +115,14 @@ export default function ConfigEditor() {
         <button type="button" className="btn btn-primary" onClick={save} disabled={!loaded || saving} title="Cmd+S / Ctrl+S">
           <Pending on={saving}>{t(saving ? 'Committing…' : 'Save and commit')}</Pending>
         </button>
+        {(error || status) && (
+          <div className="w-full">
+            <Notice tone={error ? 'danger' : 'ok'}>{error || status}</Notice>
+          </div>
+        )}
       </div>
-      {error && (
-        <div className="mb-4">
-          <Notice>{error}</Notice>
-        </div>
-      )}
-      {status && (
-        <div className="mb-4">
-          <Notice tone="ok">{status}</Notice>
-        </div>
-      )}
-      <div ref={host} className="panel overflow-hidden [&_.cm-editor]:min-h-[32rem] [&_.cm-editor.cm-focused]:outline-none" />
+      {!loaded && !error && <Loading>{t('Loading sumigo.yml…')}</Loading>}
+      <div ref={host} className={`panel overflow-hidden [&_.cm-editor]:min-h-[32rem] [&_.cm-editor.cm-focused]:outline-none ${loaded ? '' : 'hidden'}`} />
     </div>
   );
 }

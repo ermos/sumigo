@@ -184,6 +184,7 @@ export const es: Record<keyof typeof fr, string> = {
   'Create the admin account': 'Crear la cuenta de administrador',
   'error.setup_code': 'Código de configuración incorrecto, cópialo de los logs del servidor.',
   'error.setup_done': 'Esta instancia ya está configurada.',
+  'Loading sumigo.yml…': 'Cargando sumigo.yml…',
   'Access token': 'Token de acceso',
   '(already set, leave empty to keep it)': '(ya definido, déjalo vacío para conservarlo)',
   'Fine-grained token with Contents and Pull requests read/write on this repository.': 'Token fine-grained con Contents y Pull requests en lectura/escritura sobre este repositorio.',
