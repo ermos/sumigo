@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌿 Sumigo
+# 🦑 Sumigo
 
 ### *The Git CMS for every site you run, self-hosted.*
 
