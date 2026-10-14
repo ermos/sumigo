@@ -4,7 +4,7 @@ import { Access, AISettings, api, OIDCSettings, Forge, forgeNames, forgeURL, Rol
 import { Monogram, roleNames, useCtx } from './App';
 import { t } from './i18n';
 import { Pending, useAction, useConfirm } from './ui';
-import { Empty, Notice } from './Site';
+import { Empty, Notice, PageHeader } from './Site';
 
 const emptySite: Site = {
   id: 0,
@@ -49,21 +49,11 @@ export function SiteForm() {
   const [site, setSite] = useState<Site>(emptySite);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
-  // Custom domains, one per line.
-  const [domains, setDomains] = useState('');
 
   useEffect(() => {
     const s = sites.find((s) => String(s.id) === siteId);
     setSite(s ? { ...s, forge_url: s.forge_url || defaultURLs[s.forge], token: '' } : emptySite);
   }, [siteId, sites]);
-
-  useEffect(() => {
-    setDomains('');
-    if (siteId)
-      api<string[]>('GET', `/sites/${siteId}/domains`)
-        .then((d) => setDomains(d.join('\n')))
-        .catch(() => {});
-  }, [siteId]);
 
   const set = (k: keyof Site) => (e: { target: { value: string } }) => setSite({ ...site, [k]: e.target.value });
 
@@ -71,8 +61,7 @@ export function SiteForm() {
     e.preventDefault();
     setError('');
     try {
-      const saved = await api<Site>(site.id ? 'PUT' : 'POST', site.id ? `/sites/${site.id}` : '/sites', { ...site, domains: domains.split('\n') });
-      setDomains((await api<string[]>('GET', `/sites/${saved.id}/domains`)).join('\n'));
+      const saved = await api<Site>(site.id ? 'PUT' : 'POST', site.id ? `/sites/${site.id}` : '/sites', site);
       reloadSites();
       setStatus(t('Saved'));
       // A new site opens on its own page, which offers the setup when the repository has no sumigo.yml.
@@ -110,17 +99,16 @@ export function SiteForm() {
   const repoHint = t('(permissions are prefilled, select only {repo} under "Repository access").').split('{repo}');
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className={site.id ? 'max-w-3xl' : 'mx-auto max-w-3xl'}>
       {confirmDialog}
-      <div className="mb-6">
-        {site.id > 0 && (
-          <Link to={`/sites/${site.id}`} className="text-[13px] text-muted hover:text-accent">
-            {t('Back to {name}', { name: site.name })}
-          </Link>
-        )}
-        <h1>{t(site.id ? 'Site settings' : 'Add a site')}</h1>
-        {!site.id && <p className="text-muted">{t('Connect a Git repository that contains a sumigo.yml.')}</p>}
-      </div>
+      {site.id ? (
+        <PageHeader title={t('General')} />
+      ) : (
+        <div className="mb-6">
+          <h1>{t('Add a site')}</h1>
+          <p className="text-muted">{t('Connect a Git repository that contains a sumigo.yml.')}</p>
+        </div>
+      )}
       <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
         <div className="border-b border-line px-6 py-4">
           <h2>{t('Repository')}</h2>
@@ -207,11 +195,6 @@ export function SiteForm() {
               <option value="pr">{t('Review: editors save drafts, only publishers publish them')}</option>
             </select>
           </label>
-          <label className="label">
-            {t('Domains')}
-            <textarea className="field min-h-20 font-mono" value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="cms.client.com" spellCheck={false} />
-            <span className="text-xs font-normal text-muted">{t('CNAME to {host}, one domain per line.', { host: location.hostname })}</span>
-          </label>
           <label className="flex items-start gap-2 text-[13px] font-medium">
             <input className="mt-0.5 size-4 accent-accent" type="checkbox" checked={site.ai_enabled} onChange={(e) => setSite({ ...site, ai_enabled: e.target.checked })} />
             <span>
@@ -235,9 +218,6 @@ export function SiteForm() {
                 <Pending on={pending === 'delete'}>{t(pending === 'delete' ? 'Deleting…' : 'Delete site')}</Pending>
               </button>
               <span className="flex-1" />
-              <Link to={`/admin/sites/${site.id}/config`} className="btn">
-                {t('Edit sumigo.yml')}
-              </Link>
               <button type="button" className="btn" onClick={() => run('check', check)} disabled={!!pending}>
                 <Pending on={pending === 'check'}>{t(pending === 'check' ? 'Testing…' : 'Test access')}</Pending>
               </button>
@@ -405,6 +385,60 @@ export function Users() {
 }
 
 // SiteMembers sets who can open a site and with which role. Admins are left out: they see every site.
+// SiteDomains lists the custom domains (CNAME to the instance) that open the site.
+export function SiteDomains() {
+  const { siteId } = useParams();
+  const { sites } = useCtx();
+  const [run, pending] = useAction();
+  const site = sites.find((s) => String(s.id) === siteId);
+  const [domains, setDomains] = useState('');
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+
+  const load = () =>
+    api<string[]>('GET', `/sites/${siteId}/domains`)
+      .then((d) => setDomains(d.join('\n')))
+      .catch((e) => setError(e.message));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId]);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!site) return;
+    setError('');
+    setStatus('');
+    try {
+      // Domains are saved with the site: the token is left empty, so it is kept.
+      await api('PUT', `/sites/${site.id}`, { ...site, token: '', domains: domains.split('\n') });
+      await load();
+      setStatus(t('Saved'));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl">
+      <PageHeader title={t('Domains')} />
+      <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
+        <div className="flex flex-col gap-4 p-6">
+          <textarea className="field min-h-32 font-mono" value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="cms.client.com" spellCheck={false} aria-label={t('Domains')} />
+          <span className="text-xs text-muted">{t('CNAME to {host}, one domain per line.', { host: location.hostname })}</span>
+          {error && <Notice>{error}</Notice>}
+          {status && <Notice tone="ok">{status}</Notice>}
+        </div>
+        <div className="flex justify-end border-t border-line bg-canvas/60 px-6 py-3">
+          <button className="btn btn-primary" disabled={!!pending}>
+            <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save changes')}</Pending>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export function SiteMembers() {
   const { siteId } = useParams();
   const { sites } = useCtx();
@@ -438,16 +472,11 @@ export function SiteMembers() {
   const noUser = t('No user to add yet. {link} first.').split('{link}');
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <div className="mb-6">
-        <Link to={`/sites/${siteId}`} className="text-[13px] text-muted hover:text-accent">
-          {t('Back to {name}', { name: site?.name ?? '' })}
-        </Link>
-        <h1>{t('Members')}</h1>
-        <p className="text-muted">
-          {t('Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.')}
-        </p>
-      </div>
+    <div className="max-w-3xl">
+      <PageHeader title={t('Members')} />
+      <p className="mb-5 -mt-2 text-[13px] text-muted">
+        {t('Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.')}
+      </p>
       <div className="panel">
         <ul className="divide-y divide-line">
           {members.map((u) => (
@@ -765,10 +794,10 @@ export function AdminSites() {
               <span className="font-mono text-xs text-muted">{s.repo}</span>
               {s.ai_enabled && <span className="pill bg-accent-soft text-accent">{t('AI assistant')}</span>}
               <span className="ml-auto space-x-4 text-[13px] font-medium">
-                <Link to={`/admin/sites/${s.id}/members`} className="text-accent hover:underline">
+                <Link to={`/sites/${s.id}/settings/members`} className="text-accent hover:underline">
                   {t('Members')}
                 </Link>
-                <Link to={`/admin/sites/${s.id}`} className="text-accent hover:underline">
+                <Link to={`/sites/${s.id}/settings`} className="text-accent hover:underline">
                   {t('Settings')}
                 </Link>
               </span>

@@ -119,6 +119,46 @@ export function SetupView() {
   );
 }
 
+// PageHeader is the title row of a page next to a sidebar: 38px high, like the sidebar heading, so both line up.
+export const PageHeader = ({ title, children }: { title: string; children?: ReactNode }) => (
+  <div className="mb-5 flex min-h-[38px] flex-wrap items-center gap-3">
+    <h1 className="mr-auto">{title}</h1>
+    {children}
+  </div>
+);
+
+// SettingsLayout lays the site settings out like the collections: sub-pages in a sidebar. Admins only.
+export function SettingsLayout() {
+  const ctx = useOutletContext<SiteCtx>();
+  const { site, me } = ctx;
+  if (!me.is_admin) return <Navigate to={`/sites/${site.id}`} replace />;
+  const base = `/sites/${site.id}/settings`;
+  return (
+    <div className="flex flex-col gap-8 md:flex-row">
+      <aside className="shrink-0 md:w-52">
+        <nav className="flex flex-col gap-0.5">
+          <p className="mb-5 flex h-[38px] items-center px-2.5 text-2xl font-semibold tracking-tight">{t('Settings')}</p>
+          <NavLink to={base} end className={sideLink}>
+            {t('General')}
+          </NavLink>
+          <NavLink to={`${base}/domains`} className={sideLink}>
+            {t('Domains')}
+          </NavLink>
+          <NavLink to={`${base}/members`} className={sideLink}>
+            {t('Members')}
+          </NavLink>
+          <NavLink to={`${base}/config`} className={sideLink}>
+            sumigo.yml
+          </NavLink>
+        </nav>
+      </aside>
+      <div className="min-w-0 flex-1">
+        <Outlet context={ctx} />
+      </div>
+    </div>
+  );
+}
+
 // ContentLayout lists the collections next to the entries, like Decap.
 export function ContentLayout() {
   const ctx = useOutletContext<SiteCtx>();
@@ -137,10 +177,7 @@ export function ContentLayout() {
           {me.is_admin && (
             <>
               <span className="my-2 h-px bg-line" />
-              <NavLink to={`/admin/sites/${site.id}/members`} className={sideLink}>
-                {t('Members')}
-              </NavLink>
-              <NavLink to={`/admin/sites/${site.id}`} end className={sideLink}>
+              <NavLink to={`/sites/${site.id}/settings`} className={sideLink}>
                 {t('Settings')}
               </NavLink>
             </>
