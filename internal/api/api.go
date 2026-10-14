@@ -309,7 +309,7 @@ func (a *API) saveSite(w http.ResponseWriter, r *http.Request) {
 	st.Repo = strings.Trim(st.Repo, "/")
 	// GitLab nests projects in subgroups: group/subgroup/name.
 	if st.Name == "" || !strings.Contains(st.Repo, "/") || (st.Forge != forge.KindGitLab && strings.Count(st.Repo, "/") != 1) {
-		httpError(w, http.StatusBadRequest, "name_repo_required", "name and repo (owner/name) are required")
+		httpError(w, http.StatusBadRequest, "name_repo_required", "name and repo (owner/name, or group/subgroup/name on GitLab) are required")
 		return
 	}
 	switch st.Forge {

@@ -190,7 +190,7 @@ export const fr = {
   'error.invalid_slug_title': 'Slug invalide, vérifiez le titre.',
   'error.media_folder_missing': 'Définissez media_folder dans sumigo.yml pour envoyer des fichiers.',
   'error.missing_file': 'Fichier manquant (10 Mo maximum).',
-  'error.name_repo_required': 'Le nom et le dépôt (owner/name) sont obligatoires.',
+  'error.name_repo_required': 'Le nom et le dépôt (owner/name, ou groupe/sous-groupe/name sur GitLab) sont obligatoires.',
   'error.no_cms_pull': 'Aucune pull request CMS ouverte avec ce numéro.',
   'error.no_token': "Aucun token d'accès n'est configuré pour ce site.",
   'error.not_found': 'Introuvable.',

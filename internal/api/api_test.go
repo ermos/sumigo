@@ -401,3 +401,29 @@ func TestAIAssistantIsGatedAndKeepsTheKeySecret(t *testing.T) {
 		t.Fatalf("body prompt: %d %q", code, gotPrompt)
 	}
 }
+
+func TestSiteRepoFollowsTheForge(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	for body, want := range map[string]int{
+		`{"name":"P","forge":"gitlab","forge_url":"https://gitlab.com","repo":"smiti-agency/portfolio/marianne-derouet"}`: http.StatusOK,
+		`{"name":"P","forge":"github","repo":"acme/web/blog"}`:                                                            http.StatusBadRequest,
+		`{"name":"P","forge":"gitea","repo":"acme/blog"}`:                                                                 http.StatusBadRequest,
+	} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/sites", strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != want {
+			t.Errorf("%s: got %d, want %d", body, res.StatusCode, want)
+		}
+	}
+}

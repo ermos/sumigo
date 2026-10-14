@@ -192,7 +192,7 @@ export const es: Record<keyof typeof fr, string> = {
   'error.invalid_slug_title': 'Slug no válido, revisa el título.',
   'error.media_folder_missing': 'Define media_folder en sumigo.yml para subir archivos.',
   'error.missing_file': 'Falta el archivo (10 MB como máximo).',
-  'error.name_repo_required': 'El nombre y el repositorio (owner/name) son obligatorios.',
+  'error.name_repo_required': 'El nombre y el repositorio (owner/name, o grupo/subgrupo/name en GitLab) son obligatorios.',
   'error.no_cms_pull': 'No hay ninguna pull request del CMS abierta con este número.',
   'error.no_token': 'Este sitio no tiene ningún token de acceso configurado.',
   'error.not_found': 'No encontrado.',
