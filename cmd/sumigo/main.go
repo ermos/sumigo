@@ -17,6 +17,9 @@ import (
 	"github.com/ermos/sumigo/web"
 )
 
+// version is the release tag, set at build time with -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -49,7 +52,7 @@ func main() {
 	defer stop()
 	go a.RunScheduler(ctx, time.Minute)
 	go func() {
-		log.Printf("listening on %s", srv.Addr)
+		log.Printf("sumigo %s listening on %s", version, srv.Addr)
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
