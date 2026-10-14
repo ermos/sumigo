@@ -31,7 +31,13 @@ no user yet: open the web app and enter this setup code to create the admin acco
 
 Open the web app, enter that code, and create your account: it is the admin. The code only lives in memory (a restart prints a new one) and stops working once the admin exists.
 
-Or with Docker: `make docker && docker run -p 8080:8080 --env-file .env -v sumigo:/data sumigo`.
+Or with Docker: `docker run -p 8080:8080 --env-file .env -v sumigo:/data ghcr.io/ermos/sumigo:latest` (or `make docker` to build it locally).
+
+## Releases
+
+Versions follow [semver](https://semver.org) and are computed from the [conventional commits](https://www.conventionalcommits.org) merged on `main`: `feat` bumps the minor, `fix` and `perf` the patch, `feat!` or a `BREAKING CHANGE:` footer the major. Other types (`chore`, `docs`, `ci`, `refactor`…) release nothing.
+
+Each release gets a git tag, a GitHub release with its changelog, and a multi-arch (amd64, arm64) image: `ghcr.io/ermos/sumigo:<version>`, `:<major>.<minor>` and `:latest`. The version shows in the startup log.
 
 Dev: `go run ./cmd/sumigo` and `cd web && npm run dev` (Vite proxies `/api` to `:8080`).
 

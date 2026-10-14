@@ -7,12 +7,14 @@ RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
 ARG TARGETOS TARGETARCH
+# VERSION is the release tag, set by the release workflow.
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=ui /web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /sumigo ./cmd/sumigo
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /sumigo ./cmd/sumigo
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates && adduser -D -u 10001 app && mkdir /data && chown app /data
