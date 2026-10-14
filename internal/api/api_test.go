@@ -586,3 +586,33 @@ func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 		t.Fatalf("changed without the current password: %d", code)
 	}
 }
+
+func TestUsersRenameThemselvesButKeepTheirRole(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(jane.ID, time.Hour)
+	put := func(body string) int {
+		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/me", strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+	if code := put(`{"name":"  "}`); code != http.StatusBadRequest {
+		t.Fatalf("empty name accepted: %d", code)
+	}
+	if code := put(`{"name":" Jane Doe ","is_admin":true,"email":"x@evil.io"}`); code != http.StatusOK {
+		t.Fatalf("rename: %d", code)
+	}
+	u, _ := st.UserByID(jane.ID)
+	if u.Name != "Jane Doe" || u.IsAdmin || u.Email != "jane@acme.io" {
+		t.Fatalf("user = %+v", u)
+	}
+}

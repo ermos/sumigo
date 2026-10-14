@@ -14,6 +14,8 @@ export interface Ctx {
   me: User;
   sites: Site[];
   reloadSites: () => void;
+  // setMe updates the logged in user after they edit their account.
+  setMe: (u: User) => void;
 }
 
 export const useCtx = () => useOutletContext<Ctx>();
@@ -52,8 +54,9 @@ export default function App() {
     <>
       <ProgressBar />
       <Routes>
-        <Route element={<Layout me={me} sites={sites} reloadSites={reloadSites} onLogout={() => setMe(null)} />}>
+        <Route element={<Layout me={me} sites={sites} reloadSites={reloadSites} setMe={setMe} onLogout={() => setMe(null)} />}>
           <Route index element={<Home />} />
+          <Route path="account" element={<Account />} />
           <Route path="sites/:siteId" element={<SiteLayout />}>
             <Route element={<ContentLayout />}>
               <Route index element={<SiteHome />} />
@@ -120,11 +123,11 @@ export const Chevron = ({ dir = 'down' }: { dir?: 'down' | 'left' | 'right' }) =
 const menuItem = ({ isActive }: { isActive: boolean }) => `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] hover:bg-canvas ${isActive ? 'font-medium text-accent' : ''}`;
 const topLink = (active: boolean) => `rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${active ? 'bg-canvas text-ink' : 'text-muted hover:text-ink'}`;
 
-function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => void }) {
+function Layout({ me, sites, reloadSites, setMe, onLogout }: Ctx & { onLogout: () => void }) {
   const focus = useFocusMode();
   const { pathname } = useLocation();
   const current = sites.find((s) => pathname.startsWith(`/sites/${s.id}/`) || pathname === `/sites/${s.id}` || pathname === `/admin/sites/${s.id}` || pathname.startsWith(`/admin/sites/${s.id}/`));
-  const ctx = { me, sites, reloadSites } satisfies Ctx;
+  const ctx = { me, sites, reloadSites, setMe } satisfies Ctx;
   const logout = async () => {
     await api('POST', '/logout');
     clearCache();
@@ -210,6 +213,11 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
                 <div className="truncate text-[13px] font-medium">{me.name}</div>
                 <div className="truncate text-xs text-muted">{me.email}</div>
               </div>
+              <div className="border-t border-line pt-1">
+                <NavLink to="/account" className={menuItem}>
+                  {t('My account')}
+                </NavLink>
+              </div>
               {me.is_admin && (
                 <div className="border-t border-line pt-1">
                   <NavLink to="/admin" className={menuItem}>
@@ -283,6 +291,78 @@ function Home() {
           </Link>
         )
       )}
+    </div>
+  );
+}
+
+// Account lets users rename themselves (the name signs their commits) and change their password.
+function Account() {
+  const { me, setMe } = useCtx();
+  const [run, pending] = useAction();
+  const [name, setName] = useState(me.name);
+  const [pw, setPw] = useState({ current: '', password: '', confirm: '' });
+  const [msg, setMsg] = useState<{ form: 'name' | 'password'; ok: boolean; text: string } | null>(null);
+
+  const saveName = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      setMe(await api<User>('PUT', '/me', { name }));
+      setMsg({ form: 'name', ok: true, text: t('Saved') });
+    } catch (err) {
+      setMsg({ form: 'name', ok: false, text: (err as Error).message });
+    }
+  };
+  const savePassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pw.password !== pw.confirm) return setMsg({ form: 'password', ok: false, text: t('The two passwords differ.') });
+    try {
+      await api('POST', '/me/password', { current: pw.current, password: pw.password });
+      setPw({ current: '', password: '', confirm: '' });
+      setMsg({ form: 'password', ok: true, text: t('Password changed') });
+    } catch (err) {
+      setMsg({ form: 'password', ok: false, text: (err as Error).message });
+    }
+  };
+  const notice = (form: 'name' | 'password') => msg?.form === form && <p className={`text-[13px] ${msg.ok ? 'text-ok' : 'text-danger'}`}>{msg.text}</p>;
+
+  return (
+    <div className="mx-auto flex max-w-xl flex-col gap-6">
+      <h1>{t('My account')}</h1>
+      <form className="panel flex flex-col gap-4 p-6" onSubmit={(e) => run('name', () => saveName(e))}>
+        <label className="label">
+          {t('First and last name')}
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
+        </label>
+        <label className="label">
+          {t('Email')}
+          <input className="field" value={me.email} disabled />
+        </label>
+        {notice('name')}
+        <button className="btn btn-primary self-end" disabled={!!pending || name.trim() === me.name}>
+          <Pending on={pending === 'name'}>{t('Save changes')}</Pending>
+        </button>
+      </form>
+      <form className="panel flex flex-col gap-4 p-6" onSubmit={(e) => run('password', () => savePassword(e))}>
+        <h2>{t('Password')}</h2>
+        <label className="label">
+          {t('Current password')}
+          <input className="field" type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} required autoComplete="current-password" />
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="label">
+            {t('New password')}
+            <input className="field" type="password" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} minLength={8} required autoComplete="new-password" />
+          </label>
+          <label className="label">
+            {t('Confirm the password')}
+            <input className="field" type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} minLength={8} required autoComplete="new-password" />
+          </label>
+        </div>
+        {notice('password')}
+        <button className="btn btn-primary self-end" disabled={!!pending}>
+          <Pending on={pending === 'password'}>{t('Change the password')}</Pending>
+        </button>
+      </form>
     </div>
   );
 }
