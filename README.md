@@ -15,6 +15,12 @@
 
 One small **Go binary** with the web app embedded, and **SQLite**. No database server, no "Login with GitHub" for your editors: they get a Sumigo account, or log in with your identity provider. 🚀
 
+### What's in a name? 🤔
+
+**Sumigo** is a coinage from two Japanese words: **墨** (*sumi*), the ink of calligraphy and *sumi-e* painting, ground from an ink stick and laid down with a brush, and **語** (*go*), a word, a language, as in *nihon-go*, "the Japanese language". Ink and words: the stuff writers are made of. ✍️
+
+And *go* winks at the other language behind the name: Sumigo is written in **Go**. 🐹
+
 ---
 
 ## ✨ What you get
