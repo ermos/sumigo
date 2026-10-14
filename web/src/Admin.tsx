@@ -371,7 +371,7 @@ export function Users() {
                     {t('Access:')}{' '}
                     {u.is_admin
                       ? t('every site')
-                      : u.sites.length
+                      : u.sites?.length
                         ? u.sites.map((s, i) => (
                             <span key={s.site_id}>
                               {i > 0 && ', '}

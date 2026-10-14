@@ -262,7 +262,7 @@ function Layout({ me, sites, reloadSites, setMe, onLogout }: Ctx & { onLogout: (
 }
 
 // domainSite is the site a custom domain opens, fetched once: null on the instance domain.
-const domainSite = api<{ site_id: number }>('GET', '/domain').then(
+const domainSite = api<{ site_id: number | null }>('GET', '/domain').then(
   (d) => d.site_id,
   () => null,
 );
