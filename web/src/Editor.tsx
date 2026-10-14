@@ -139,7 +139,7 @@ export default function Editor() {
   };
   const assist =
     site.ai && !readOnly
-      ? async (f: Field, action: 'write' | 'proofread') => (await api<{ text: string }>('POST', `/sites/${site.id}/collections/${col}/ai`, { action, field: f.name, data })).text
+      ? async (f: Field, action: 'write' | 'proofread', brief?: string) => (await api<{ text: string }>('POST', `/sites/${site.id}/collections/${col}/ai`, { action, field: f.name, data, brief })).text
       : undefined;
   const field = (f: Field) => <FieldInput key={f.name} site={site} field={f} value={data?.[f.name]} readOnly={readOnly} onChange={change(f.name)} assist={assist} />;
 
@@ -320,7 +320,7 @@ interface FieldProps {
   readOnly: boolean;
   onChange: (v: unknown) => void;
   // assist asks the AI assistant for a value, when it is on for the site.
-  assist?: (field: Field, action: 'write' | 'proofread') => Promise<string>;
+  assist?: (field: Field, action: 'write' | 'proofread', brief?: string) => Promise<string>;
 }
 
 // toLocalInput turns a stored ISO date into the local "YYYY-MM-DDTHH:MM" a datetime input expects.
@@ -397,7 +397,17 @@ function FieldInput({ site, field, value, readOnly, onChange, assist }: FieldPro
       input = <textarea className="field" rows={4} value={str} onChange={(e) => onChange(e.target.value)} {...common} />;
       break;
     case 'markdown':
-      return <MarkdownInput site={site} label={label} value={str} onChange={onChange} readOnly={readOnly} proofread={assist && (() => assist(field, 'proofread'))} />;
+      return (
+        <MarkdownInput
+          site={site}
+          label={label}
+          value={str}
+          onChange={onChange}
+          readOnly={readOnly}
+          proofread={assist && (() => assist(field, 'proofread'))}
+          suggest={assist && ((brief) => assist(field, 'write', brief))}
+        />
+      );
     case 'boolean':
       return (
         <label className="flex items-center gap-2 text-[13px] font-medium">
@@ -563,6 +573,7 @@ function MarkdownInput({
   onChange,
   readOnly,
   proofread,
+  suggest,
 }: {
   site: SiteDetail;
   label: ReactNode;
@@ -570,9 +581,30 @@ function MarkdownInput({
   onChange: (v: string) => void;
   readOnly: boolean;
   proofread?: () => Promise<string>;
+  // suggest writes the whole body from the editor's description of the article.
+  suggest?: (brief: string) => Promise<string>;
 }) {
   const [uploading, setUploading] = useState(false);
   const [proofing, setProofing] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [brief, setBrief] = useState('');
+  const dialog = useRef<HTMLDialogElement>(null);
+  const write = async () => {
+    if (!brief.trim() || writing) return;
+    setWriting(true);
+    setError('');
+    try {
+      const text = await suggest!(brief);
+      // Through replace, so Cmd+Z brings the previous text back.
+      if (text) replace(0, ref.current!.value.length, text, 0);
+      dialog.current?.close();
+    } catch (e) {
+      setError((e as Error).message);
+      dialog.current?.close();
+    } finally {
+      setWriting(false);
+    }
+  };
   const [error, setError] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -781,10 +813,21 @@ function MarkdownInput({
               )}
             </div>
           )}
-          {proofread && !readOnly && (
+          {suggest && !readOnly && (
             <button
               type="button"
               className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-60"
+              disabled={writing || proofing}
+              onClick={() => dialog.current?.showModal()}
+            >
+              {writing ? <Spinner className="size-3" /> : <Icon d={icons.sparkle} size="size-3.5" />}
+              {t(writing ? 'Writing…' : 'Suggest')}
+            </button>
+          )}
+          {proofread && !readOnly && (
+            <button
+              type="button"
+              className={`${suggest ? '' : 'ml-auto'} flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-60`}
               disabled={proofing || !value.trim()}
               title={t('Fixes spelling and grammar without changing the content. Cmd+Z undoes it.')}
               onClick={async () => {
@@ -805,7 +848,32 @@ function MarkdownInput({
               {t(proofing ? 'Proofreading…' : 'Proofread')}
             </button>
           )}
-          <span className={`${proofread && !readOnly ? '' : 'ml-auto'} pr-1 text-xs font-normal text-muted tabular-nums`}>{t('{n} words', { n: words })}</span>
+          {suggest && (
+            <dialog ref={dialog} className="panel m-auto w-[calc(100%-2rem)] max-w-lg p-0 text-ink shadow-xl backdrop:bg-ink/30" onCancel={(e) => writing && e.preventDefault()}>
+              <div className="flex flex-col gap-4 p-6">
+                <h2>{t('Write the article')}</h2>
+                <textarea
+                  className="field min-h-36 font-normal"
+                  value={brief}
+                  autoFocus
+                  onChange={(e) => setBrief(e.target.value)}
+                  onKeyDown={(e) => (e.metaKey || e.ctrlKey) && e.key === 'Enter' && write()}
+                  placeholder={t('Topic, audience, key points, tone…')}
+                  aria-label={t('Describe the article')}
+                />
+                {value.trim() && <p className="text-xs font-normal text-muted">{t('Replaces the current content (Cmd+Z to undo).')}</p>}
+                <div className="flex justify-end gap-2">
+                  <button type="button" className="btn" onClick={() => dialog.current?.close()} disabled={writing}>
+                    {t('Cancel')}
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={write} disabled={writing || !brief.trim()}>
+                    <Pending on={writing}>{t(writing ? 'Writing…' : 'Write')}</Pending>
+                  </button>
+                </div>
+              </div>
+            </dialog>
+          )}
+          <span className={`${(proofread || suggest) && !readOnly ? '' : 'ml-auto'} pr-1 text-xs font-normal text-muted tabular-nums`}>{t('{n} words', { n: words })}</span>
         </div>
         {error && <p className="border-b border-line bg-danger/5 px-4 py-2 text-xs font-normal text-danger">{error}</p>}
         <textarea
@@ -862,9 +930,7 @@ function ScheduleMenu({ site, pull, dirty, onChange }: { site: SiteDetail; pull:
           {t('Publish on')}
           <input className="field" type="datetime-local" value={at} min={toLocalInput(new Date().toISOString())} onChange={(e) => setAt(e.target.value)} />
         </label>
-        <p className="text-xs text-muted">
-          {dirty ? t('Save the draft first: the saved version is the one that gets published.') : t('The saved draft is published at this time, even if nobody has the CMS open.')}
-        </p>
+        {dirty && <p className="text-xs text-muted">{t('Save the draft first.')}</p>}
         {error && <p className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
           {pull.scheduled_at && (
@@ -929,8 +995,7 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
   }
   return (
     <div className="px-6 py-8">
-      <h2 className="mb-1">{t('History')}</h2>
-      <p className="mb-5 text-[13px] text-muted">{t('Every saved version of this entry. Open one to compare it with the preview, then restore it if needed.')}</p>
+      <h2 className="mb-4">{t('History')}</h2>
       {error && <Notice>{error}</Notice>}
       {!commits && !error && <Loading />}
       {commits?.length === 0 && <Empty>{t('No version yet.')}</Empty>}

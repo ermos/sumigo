@@ -322,9 +322,12 @@ func TestSchedulerPublishesDueDrafts(t *testing.T) {
 
 func TestAIAssistantIsGatedAndKeepsTheKeySecret(t *testing.T) {
 	a, st := newTestAPI(t, &fakeGitHub{})
-	var gotKey string
+	var gotKey, gotPrompt string
 	claude := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotKey = r.Header.Get("x-api-key")
+		var body struct{ Messages []struct{ Content string } }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotPrompt = body.Messages[0].Content
 		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"A short description."}]}`))
 	}))
 	defer claude.Close()
@@ -374,5 +377,10 @@ func TestAIAssistantIsGatedAndKeepsTheKeySecret(t *testing.T) {
 	}
 	if code, body := assist(); code != http.StatusOK || !strings.Contains(body, "A short description.") || gotKey != "sk-ant-secret" {
 		t.Fatalf("assist: %d %s (key %q)", code, body, gotKey)
+	}
+	// Writing the body sends the editor's brief, with the article rules.
+	if code, _ := call(http.MethodPost, "/api/sites/1/collections/posts/ai", `{"action":"write","field":"body","brief":"Why cats nap","data":{"title":"Cats"}}`); code != http.StatusOK ||
+		!strings.Contains(gotPrompt, "Why cats nap") || !strings.Contains(gotPrompt, "Article rules") {
+		t.Fatalf("body prompt: %d %q", code, gotPrompt)
 	}
 }
