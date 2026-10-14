@@ -194,9 +194,11 @@ export const fr = {
   'Add a member': 'Ajouter un membre',
   'Remove': 'Retirer',
   'Remove {name}': 'Retirer {name}',
-  'User': 'Utilisateur',
-  'Add': 'Ajouter',
-  'Every user is already a member.': 'Tous les utilisateurs sont déjà membres.',
+  '{name} is an admin and already opens every site.': '{name} est admin et ouvre déjà tous les sites.',
+  'No account with this email: it is created with a temporary password.': 'Aucun compte avec cet email : il sera créé avec un mot de passe temporaire.',
+  'Create and add': 'Créer et ajouter',
+  'Continue': 'Continuer',
+  'Done': 'Terminé',
   'Access token': "Token d'accès",
   '(already set, leave empty to keep it)': '(déjà défini, laissez vide pour le conserver)',
   'Fine-grained token with Contents and Pull requests read/write on this repository.': 'Token fine-grained avec Contents et Pull requests en lecture/écriture sur ce dépôt.',
@@ -221,7 +223,6 @@ export const fr = {
   '(manages users and sites, sees every site)': '(gère les utilisateurs et les sites, voit tous les sites)',
   'Save user': "Enregistrer l'utilisateur",
   'Role of {name}': 'Rôle de {name}',
-  'Create a user': 'Créer un utilisateur',
 
   // Editor
   'Published on {branch}': 'Publié sur {branch}',

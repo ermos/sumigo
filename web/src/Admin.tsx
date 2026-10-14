@@ -448,7 +448,9 @@ export function SiteMembers() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
-  const [pick, setPick] = useState<{ user_id: number; role: Role }>({ user_id: 0, role: 'editor' });
+  // Adding a member: an email first; an unknown email then gets a name and a temporary password.
+  const emptyForm = { step: 'email' as 'email' | 'create' | 'done', email: '', first_name: '', last_name: '', role: 'editor' as Role, password: '', note: '' };
+  const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
     api<User[]>('GET', '/users').then(setUsers);
@@ -473,14 +475,32 @@ export function SiteMembers() {
 
   const admins = users.filter((u) => u.is_admin);
   const members = access.map((a) => ({ user: users.find((u) => u.id === a.user_id), role: a.role })).filter((m) => m.user && !m.user.is_admin);
-  const candidates = users.filter((u) => !u.is_admin && !access.some((a) => a.user_id === u.id));
   const openAdd = () => {
-    setPick({ user_id: candidates[0]?.id ?? 0, role: 'editor' });
+    setError('');
+    setForm(emptyForm);
     dialog.current?.showModal();
   };
   const add = async (e: FormEvent) => {
     e.preventDefault();
-    if (pick.user_id && (await setRole(pick.user_id, pick.role))) dialog.current?.close();
+    setError('');
+    if (form.step === 'email') {
+      const known = users.find((u) => u.email.toLowerCase() === form.email.trim().toLowerCase());
+      if (!known) return setForm({ ...form, step: 'create' });
+      if (known.is_admin) return setForm({ ...form, note: t('{name} is an admin and already opens every site.', { name: known.name }) });
+      if (await setRole(known.id, form.role)) dialog.current?.close();
+      return;
+    }
+    // Unknown email: create the user with a temporary password, then give them the role.
+    setBusy(true);
+    try {
+      const created = await api<User & { temporary_password: string }>('POST', '/users', { email: form.email.trim(), first_name: form.first_name, last_name: form.last_name, temporary: true });
+      setUsers((list) => [...list, created]);
+      if (await setRole(created.id, form.role)) setForm({ ...form, step: 'done', password: created.temporary_password });
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const row = (u: User, right: ReactNode) => (
@@ -540,44 +560,65 @@ export function SiteMembers() {
       <dialog ref={dialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30">
         <form className="flex flex-col gap-4 p-6" onSubmit={add}>
           <h2>{t('Add a member')}</h2>
-          {candidates.length ? (
+          {form.step === 'done' ? (
             <>
-              <label className="label">
-                {t('User')}
-                <select className="field" value={pick.user_id} onChange={(e) => setPick({ ...pick, user_id: Number(e.target.value) })} autoFocus>
-                  {candidates.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.email})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="label">
-                {t('Role')}
-                {roleSelect(pick.role, (role) => setPick({ ...pick, role }), t('Role'))}
-              </label>
+              <p className="text-[13px]">{t('Temporary password of {name}, shown once:', { name: `${form.first_name} ${form.last_name}`.trim() })}</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 rounded bg-canvas px-2 py-1.5 font-mono text-sm select-all">{form.password}</code>
+                <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(form.password)}>
+                  {t('Copy')}
+                </button>
+              </div>
             </>
           ) : (
-            <p className="text-[13px] text-muted">{t('Every user is already a member.')}</p>
+            <>
+              <div className="grid grid-cols-[1fr_auto] items-end gap-2">
+                <label className="label">
+                  {t('Email')}
+                  <input
+                    className="field"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value, step: 'email', note: '' })}
+                    required
+                    autoFocus
+                    autoComplete="off"
+                  />
+                </label>
+                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'))}
+              </div>
+              {form.note && <p className="text-[13px] text-muted">{form.note}</p>}
+              {form.step === 'create' && (
+                <>
+                  <p className="text-[13px] text-muted">{t('No account with this email: it is created with a temporary password.')}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="label">
+                      {t('First name')}
+                      <input className="field" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required autoFocus autoComplete="off" />
+                    </label>
+                    <label className="label">
+                      {t('Last name')}
+                      <input className="field" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} autoComplete="off" />
+                    </label>
+                  </div>
+                </>
+              )}
+              {error && <Notice>{error}</Notice>}
+            </>
           )}
           <div className="flex justify-end gap-2">
-            {candidates.length ? (
-              <>
-                <button type="button" className="btn" onClick={() => dialog.current?.close()}>
-                  {t('Cancel')}
-                </button>
-                <button className="btn btn-primary" disabled={busy}>
-                  <Pending on={busy}>{t('Add')}</Pending>
-                </button>
-              </>
+            {form.step === 'done' ? (
+              <button type="button" className="btn btn-primary" onClick={() => dialog.current?.close()}>
+                {t('Done')}
+              </button>
             ) : (
               <>
                 <button type="button" className="btn" onClick={() => dialog.current?.close()}>
                   {t('Cancel')}
                 </button>
-                <Link to="/admin/users" className="btn btn-primary">
-                  {t('Create a user')}
-                </Link>
+                <button className="btn btn-primary" disabled={busy}>
+                  <Pending on={busy}>{t(form.step === 'create' ? 'Create and add' : 'Continue')}</Pending>
+                </button>
               </>
             )}
           </div>

@@ -196,9 +196,11 @@ export const es: Record<keyof typeof fr, string> = {
   'Add a member': 'Añadir un miembro',
   'Remove': 'Quitar',
   'Remove {name}': 'Quitar a {name}',
-  'User': 'Usuario',
-  'Add': 'Añadir',
-  'Every user is already a member.': 'Todos los usuarios ya son miembros.',
+  '{name} is an admin and already opens every site.': '{name} es administrador y ya abre todos los sitios.',
+  'No account with this email: it is created with a temporary password.': 'No hay cuenta con este correo: se creará con una contraseña temporal.',
+  'Create and add': 'Crear y añadir',
+  'Continue': 'Continuar',
+  'Done': 'Hecho',
   'Access token': 'Token de acceso',
   '(already set, leave empty to keep it)': '(ya definido, déjalo vacío para conservarlo)',
   'Fine-grained token with Contents and Pull requests read/write on this repository.': 'Token fine-grained con Contents y Pull requests en lectura/escritura sobre este repositorio.',
@@ -223,7 +225,6 @@ export const es: Record<keyof typeof fr, string> = {
   '(manages users and sites, sees every site)': '(gestiona usuarios y sitios, ve todos los sitios)',
   'Save user': 'Guardar usuario',
   'Role of {name}': 'Rol de {name}',
-  'Create a user': 'Crear un usuario',
 
   // Editor
   'Published on {branch}': 'Publicado en {branch}',
