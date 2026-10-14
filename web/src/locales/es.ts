@@ -135,6 +135,8 @@ export const es: Record<keyof typeof fr, string> = {
   'Open the pull request on GitHub': 'Abrir la pull request en GitHub',
   'Read only': 'Solo lectura',
   'Unsaved changes': 'Cambios sin guardar',
+  Autosaved: 'Guardado automáticamente',
+  'Unsaved version from {date}': 'Versión sin guardar del {date}',
   'Save draft': 'Guardar borrador',
   'Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)': 'Guarda los cambios en una pull request sin publicarlos (Cmd+S / Ctrl+S)',
   'Merges pull request #{n} into {branch}': 'Fusiona la pull request #{n} en {branch}',

@@ -133,6 +133,8 @@ export const fr = {
   'Open the pull request on GitHub': 'Ouvrir la pull request sur GitHub',
   'Read only': 'Lecture seule',
   'Unsaved changes': 'Modifications non enregistrées',
+  Autosaved: 'Sauvegardé automatiquement',
+  'Unsaved version from {date}': 'Version non enregistrée du {date}',
   'Save draft': 'Enregistrer le brouillon',
   'Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)': 'Garde les modifications dans une pull request sans les publier (Cmd+S / Ctrl+S)',
   'Merges pull request #{n} into {branch}': 'Fusionne la pull request #{n} dans {branch}',

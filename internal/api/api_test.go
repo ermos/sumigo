@@ -119,9 +119,9 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	call := func(u *store.User, method, body string) *http.Response {
+	do := func(u *store.User, method, url, body string) *http.Response {
 		token, _ := st.CreateSession(u.ID, time.Hour)
-		req, _ := http.NewRequest(method, srv.URL+"/api/sites/1/collections/posts/entries", strings.NewReader(body))
+		req, _ := http.NewRequest(method, srv.URL+url, strings.NewReader(body))
 		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
@@ -129,7 +129,14 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 		}
 		return res
 	}
+	call := func(u *store.User, method, body string) *http.Response {
+		return do(u, method, "/api/sites/1/collections/posts/entries", body)
+	}
 	post := func(u *store.User, body string) *http.Response { return call(u, http.MethodPost, body) }
+	autosaved := func() string {
+		b, _ := io.ReadAll(do(editor, http.MethodGet, "/api/sites/1/collections/posts/autosave", "").Body)
+		return string(b)
+	}
 
 	if res := post(viewer, `{"data":{"title":"Hello World"}}`); res.StatusCode != http.StatusForbidden {
 		t.Fatalf("viewer must not write, got %d", res.StatusCode)
@@ -137,10 +144,20 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	if res := post(editor, `{"data":{"body":"no title"}}`); res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("required field not enforced, got %d", res.StatusCode)
 	}
+	// The form of a new entry is autosaved without a commit, and dropped once the entry is saved.
+	if res := do(editor, http.MethodPut, "/api/sites/1/collections/posts/autosave", `{"data":{"title":"Hel"}}`); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("autosave failed: %d", res.StatusCode)
+	}
+	if got := autosaved(); !strings.Contains(got, `"data":{"title":"Hel"}`) || len(gh.writes) != 0 {
+		t.Fatalf("autosave = %s, writes = %v", got, gh.writes)
+	}
 	res := post(editor, `{"data":{"title":"Hello World","body":"Hi"}}`)
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("save failed: %d %s", res.StatusCode, b)
+	}
+	if got := autosaved(); strings.TrimSpace(got) != "null" {
+		t.Fatalf("autosave left after save: %s", got)
 	}
 
 	want := []string{"POST /git/refs", "PUT /contents/content/posts/hello-world.md", "POST /pulls"}

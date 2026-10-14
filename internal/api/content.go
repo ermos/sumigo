@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
@@ -346,7 +347,56 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		a.markScheduled(sc.site.ID, pulls)
 		pr = &pulls[0]
 	}
+	// The entry is committed: what was autosaved for it is now stale.
+	if err := a.Store.DeleteAutosave(sc.site.ID, sc.user.ID, col.Name, r.PathValue("slug")); err != nil {
+		fail(w, err)
+		return
+	}
 	writeJSON(w, map[string]any{"slug": slug, "draft": pr})
+}
+
+// autosave keeps the editor form of the user in the database, without a commit. ?slug= is empty for a new entry.
+func (a *API) autosave(w http.ResponseWriter, r *http.Request) {
+	sc, ok := a.site(w, r, store.RoleEditor)
+	if !ok {
+		return
+	}
+	col, slug := r.PathValue("col"), r.URL.Query().Get("slug")
+	if slug != "" && !validSlug(slug) {
+		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		saved, err := a.Store.GetAutosave(sc.site.ID, sc.user.ID, col, slug)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, saved)
+	case http.MethodPut:
+		var in struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		if len(in.Data) == 0 {
+			httpError(w, http.StatusBadRequest, "invalid_data", "missing data")
+			return
+		}
+		if err := a.Store.SetAutosave(sc.site.ID, sc.user.ID, col, slug, in.Data); err != nil {
+			fail(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		if err := a.Store.DeleteAutosave(sc.site.ID, sc.user.ID, col, slug); err != nil {
+			fail(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
