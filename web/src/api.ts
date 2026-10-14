@@ -30,6 +30,8 @@ export interface Collection {
   identifier_field?: string;
   create?: boolean;
   fields: Field[];
+  // seo turns on the SEO panel and names the fields playing each role.
+  seo?: { title?: string; description?: string; keywords?: string; image?: string; slug?: boolean };
 }
 
 export interface Config {

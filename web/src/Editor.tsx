@@ -2,13 +2,14 @@ import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffe
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
 import { diffText, Part } from './diff';
 import { Chevron } from './App';
 import { t } from './i18n';
+import { analyze, keywordsOf, slugify, Status } from './seo';
 
 type Data = Record<string, unknown>;
 
@@ -28,7 +29,7 @@ export default function Editor() {
   const [busy, setBusy] = useState<'draft' | 'publish' | 'delete' | 'discard' | null>(null);
   const [dirty, setDirty] = useState(false);
   // The right pane shows the live preview, or the history of the entry.
-  const [panel, setPanel] = useState<'preview' | 'history' | null>('preview');
+  const [panel, setPanel] = useState<'preview' | 'history' | 'seo' | null>('preview');
   // Bumped on restore so fields holding their own text state start over.
   const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
@@ -207,7 +208,7 @@ export default function Editor() {
     setAutosave(null);
     api('DELETE', autosaveUrl).catch(() => {});
   };
-  const togglePanel = (p: 'preview' | 'history') => setPanel(panel === p ? null : p);
+  const togglePanel = (p: 'preview' | 'history' | 'seo') => setPanel(panel === p ? null : p);
   const back = `/sites/${site.id}/c/${col}`;
   const title = (data && collection.identifier_field && String(data[collection.identifier_field] ?? '')) || (data && typeof data.title === 'string' && data.title) || slug;
 
@@ -242,9 +243,9 @@ export default function Editor() {
           status && <span className="hidden text-[13px] text-ok sm:inline">{status}</span>
         )}
         <div className="hidden rounded-md bg-canvas p-0.5 ring-1 ring-line lg:flex">
-          {(['preview', 'history'] as const).map(
+          {(['preview', 'seo', 'history'] as const).map(
             (p) =>
-              (p === 'preview' || slug) && (
+              (p === 'preview' || (p === 'seo' ? collection.seo : slug)) && (
                 <button
                   key={p}
                   type="button"
@@ -252,7 +253,7 @@ export default function Editor() {
                   onClick={() => togglePanel(p)}
                   className={`rounded px-2.5 py-1 text-[13px] font-medium ${panel === p ? 'bg-surface text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`}
                 >
-                  {t(p === 'preview' ? 'Preview' : 'History')}
+                  {t(({ preview: 'Preview', seo: 'SEO', history: 'History' } as const)[p])}
                 </button>
               ),
           )}
@@ -352,6 +353,8 @@ export default function Editor() {
                   titleField={collection.identifier_field || 'title'}
                   onRestore={readOnly ? undefined : restore}
                 />
+              ) : panel === 'seo' && collection.seo ? (
+                <SEOPanel site={site} collection={collection.name} seo={collection.seo} titleField={collection.identifier_field || 'title'} slug={slug} data={data} />
               ) : (
                 <Preview site={site} fields={collection.fields} titleField={collection.identifier_field || 'title'} data={data} />
               )}
@@ -362,6 +365,62 @@ export default function Editor() {
         !error && <Loading />
       )}
     </form>
+  );
+}
+
+const statusColors: Record<Status, string> = { good: 'bg-ok', warn: 'bg-amber-500', bad: 'bg-danger' };
+
+// SEOPanel scores the entry as it is typed, from the fields its collection names in sumigo.yml, and shows its Google result.
+function SEOPanel({
+  site,
+  collection,
+  seo,
+  titleField,
+  slug,
+  data,
+}: {
+  site: SiteDetail;
+  collection: string;
+  seo: NonNullable<Collection['seo']>;
+  titleField: string;
+  slug?: string;
+  data: Data;
+}) {
+  const str = (name?: string) => (name ? String(data[name] ?? '') : '');
+  const title = str(seo.title || titleField);
+  const description = seo.description ? str(seo.description) : undefined;
+  const entrySlug = slug ?? slugify(title);
+  const r = analyze({
+    title,
+    description,
+    keywords: keywordsOf(seo.keywords ? data[seo.keywords] : undefined),
+    slug: seo.slug ? entrySlug : undefined,
+    body: str('body'),
+    image: seo.image ? str(seo.image) : null,
+  });
+  const tone = r.score >= 80 ? 'text-ok' : r.score >= 50 ? 'text-amber-600' : 'text-danger';
+  return (
+    <div className="flex flex-col gap-6 p-6">
+      <div className="flex items-center gap-3">
+        <span className={`text-3xl font-semibold tabular-nums ${tone}`}>{r.score}</span>
+        <span className="text-[13px] text-muted">{t('SEO score out of 100, {n} words', { n: r.words })}</span>
+      </div>
+      <div className="rounded-md border border-line p-4">
+        <p className="truncate text-xs text-muted">
+          {site.name} › {collection} › {entrySlug}
+        </p>
+        <p className="mt-0.5 line-clamp-1 text-lg text-[#1a0dab] dark:text-[#8ab4f8]">{title || t('Title')}</p>
+        <p className="line-clamp-2 text-[13px] text-muted">{description || t('No description: Google picks a sentence of the content.')}</p>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {r.checks.map((c) => (
+          <li key={c.message} className="flex items-start gap-2.5 text-[13px]">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${statusColors[c.status]}`} aria-label={c.status} />
+            {t(c.message as Parameters<typeof t>[0], c.vars)}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

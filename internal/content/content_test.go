@@ -1,6 +1,7 @@
 package content
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -56,5 +57,16 @@ func TestSlug(t *testing.T) {
 	got := Slug("{{year}}-{{month}}-{{day}}-{{slug}}", "Été à Paris, 2026 !", nil, now)
 	if got != "2026-03-07-ete-a-paris-2026" {
 		t.Fatal(got)
+	}
+}
+
+func TestSEOMustUseFieldsOfTheCollection(t *testing.T) {
+	ok := "collections:\n  - name: blog\n    folder: blog\n    seo: { title: title, keywords: tags, slug: true }\n    fields: [{ name: title }, { name: tags, widget: list }]\n"
+	cfg, err := ParseConfig([]byte(ok))
+	if err != nil || cfg.Collections[0].SEO.Keywords != "tags" || !cfg.Collections[0].SEO.Slug {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	if _, err := ParseConfig([]byte(strings.Replace(ok, "keywords: tags", "keywords: kw", 1))); err == nil || !strings.Contains(err.Error(), `"kw"`) {
+		t.Fatalf("unknown seo field accepted: %v", err)
 	}
 }
