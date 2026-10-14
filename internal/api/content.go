@@ -14,14 +14,14 @@ import (
 	"time"
 
 	"github.com/ermos/sumigo/internal/content"
-	"github.com/ermos/sumigo/internal/github"
+	"github.com/ermos/sumigo/internal/forge"
 	"github.com/ermos/sumigo/internal/store"
 )
 
 // Branches opened by the CMS in "pr" workflow: cms/<collection>/<slug>.
 const branchPrefix = "cms/"
 
-// ponytail: config cached per site for configTTL, edits to sumigo.yml show up after that (or on "Test GitHub access").
+// ponytail: config cached per site for configTTL, edits to sumigo.yml show up after that (or on "Test access").
 const configTTL = time.Minute
 
 type cachedConfig struct {
@@ -32,11 +32,11 @@ type cachedConfig struct {
 type siteCtx struct {
 	site *store.Site
 	user *store.User
-	gh   *github.Client
+	gh   forge.Forge
 }
 
-func (sc *siteCtx) author() github.Author {
-	return github.Author{Name: sc.user.Name, Email: sc.user.Email}
+func (sc *siteCtx) author() forge.Author {
+	return forge.Author{Name: sc.user.Name, Email: sc.user.Email}
 }
 
 // site loads the site from the path and checks the user has at least min role on it.
@@ -65,9 +65,9 @@ func (a *API) site(w http.ResponseWriter, r *http.Request, min string) (*siteCtx
 			fail(w, err)
 			return nil, false
 		}
-		sc.gh = a.NewGitHub(token, st.Repo)
+		sc.gh = a.NewForge(st.Forge, st.ForgeURL, token, st.Repo)
 	} else if r.Pattern != "GET /api/sites/{site}" {
-		httpError(w, http.StatusConflict, "no_token", "this site has no GitHub token configured")
+		httpError(w, http.StatusConflict, "no_token", "this site has no access token configured")
 		return nil, false
 	}
 	return sc, true
@@ -79,7 +79,7 @@ func (a *API) config(ctx context.Context, sc *siteCtx, fresh bool) (*content.Con
 		return c.(cachedConfig).cfg, nil
 	}
 	raw, _, err := sc.gh.GetFile(ctx, content.ConfigFile, sc.site.Branch)
-	if github.IsNotFound(err) {
+	if forge.IsNotFound(err) {
 		return nil, fmt.Errorf("%s not found at the root of branch %s", content.ConfigFile, sc.site.Branch)
 	}
 	if err != nil {
@@ -119,7 +119,7 @@ func validSlug(s string) bool {
 }
 
 // draft returns the open CMS pull request for an entry, or nil.
-func (sc *siteCtx) draft(ctx context.Context, branch string) (*github.Pull, error) {
+func (sc *siteCtx) draft(ctx context.Context, branch string) (*forge.Pull, error) {
 	pulls, err := sc.gh.ListPulls(ctx, branch)
 	if err != nil {
 		return nil, err
@@ -133,11 +133,11 @@ func (sc *siteCtx) draft(ctx context.Context, branch string) (*github.Pull, erro
 }
 
 type entrySummary struct {
-	Slug  string       `json:"slug"`
-	Path  string       `json:"path"`
-	Title string       `json:"title"`
-	Date  any          `json:"date,omitempty"`
-	Draft *github.Pull `json:"draft,omitempty"`
+	Slug  string      `json:"slug"`
+	Path  string      `json:"path"`
+	Title string      `json:"title"`
+	Date  any         `json:"date,omitempty"`
+	Draft *forge.Pull `json:"draft,omitempty"`
 	// Data is the full entry (front matter + body), so the UI opens it without another call.
 	Data map[string]any `json:"data,omitempty"`
 }
@@ -173,7 +173,7 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
 	a.markScheduled(sc.site.ID, pulls)
-	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, col.Folder, extra)
+	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, col.Folder, col.Ext(), extra)
 	if err != nil {
 		fail(w, err)
 		return
@@ -217,7 +217,7 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if pr != nil {
 		ref = pr.Head.Ref
-		a.markScheduled(sc.site.ID, []github.Pull{*pr})
+		a.markScheduled(sc.site.ID, []forge.Pull{*pr})
 	}
 	raw, _, err := sc.gh.GetFile(r.Context(), entryPath(col, slug), ref)
 	if err != nil {
@@ -290,7 +290,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		if _, _, err := sc.gh.GetFile(ctx, file, sc.site.Branch); err == nil || pr != nil {
 			httpError(w, http.StatusConflict, "slug_exists", "an entry with slug "+slug+" already exists", params{"slug": slug})
 			return
-		} else if !github.IsNotFound(err) {
+		} else if !forge.IsNotFound(err) {
 			fail(w, err)
 			return
 		}
@@ -306,15 +306,14 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 				fail(w, err)
 				return
 			}
-			// 422: branch left over from a closed PR, reuse it.
-			if err := sc.gh.CreateBranch(ctx, branch, base); err != nil && !github.IsStatus(err, http.StatusUnprocessableEntity) {
+			if err := sc.gh.CreateBranch(ctx, branch, base); err != nil {
 				fail(w, err)
 				return
 			}
 		}
 	}
 	_, sha, err := sc.gh.GetFile(ctx, file, branch)
-	if err != nil && !github.IsNotFound(err) {
+	if err != nil && !forge.IsNotFound(err) {
 		fail(w, err)
 		return
 	}
@@ -343,7 +342,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		pr = nil
 	}
 	if pr != nil {
-		pulls := []github.Pull{*pr}
+		pulls := []forge.Pull{*pr}
 		a.markScheduled(sc.site.ID, pulls)
 		pr = &pulls[0]
 	}
@@ -423,8 +422,7 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pr != nil {
-		// Deleting the branch closes the draft PR.
-		if err := sc.gh.DeleteBranch(ctx, branch); err != nil {
+		if err := sc.gh.ClosePull(ctx, *pr); err != nil {
 			fail(w, err)
 			return
 		}
@@ -435,7 +433,7 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	file := entryPath(col, slug)
 	_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
-	if github.IsNotFound(err) && pr != nil {
+	if forge.IsNotFound(err) && pr != nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -565,7 +563,7 @@ func (sc *siteCtx) entryTexts(ctx context.Context, cfg *content.Config) ([]strin
 				extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 			}
 		}
-		blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, col.Folder, extra)
+		blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, col.Folder, col.Ext(), extra)
 		if err != nil {
 			return nil, err
 		}
@@ -596,7 +594,7 @@ func (a *API) mediaPath(w http.ResponseWriter, r *http.Request, min string) (*si
 	return sc, path.Join(cfg.MediaFolder, name), true
 }
 
-// getMedia streams one media file from GitHub, so images of private repos show in the CMS.
+// getMedia streams one media file from the forge, so images of private repos show in the CMS.
 func (a *API) getMedia(w http.ResponseWriter, r *http.Request) {
 	sc, file, ok := a.mediaPath(w, r, store.RoleViewer)
 	if !ok {
@@ -677,7 +675,7 @@ func (a *API) mergePull(w http.ResponseWriter, r *http.Request) {
 }
 
 // publishablePull checks the user can publish on the site and returns the CMS pull request {number}.
-func (a *API) publishablePull(w http.ResponseWriter, r *http.Request, sc *siteCtx) (*github.Pull, bool) {
+func (a *API) publishablePull(w http.ResponseWriter, r *http.Request, sc *siteCtx) (*forge.Pull, bool) {
 	if !sc.canPublish() {
 		httpError(w, http.StatusForbidden, "publisher_only", "only publishers can publish on this site")
 		return nil, false
@@ -708,7 +706,7 @@ func (sc *siteCtx) canPublish() bool {
 
 // publish squash-merges a draft pull request, deletes its branch and drops its schedule.
 // how ends up in the commit title: "published by Jane", "scheduled by Jane".
-func (a *API) publish(ctx context.Context, sc *siteCtx, p *github.Pull, how string) error {
+func (a *API) publish(ctx context.Context, sc *siteCtx, p *forge.Pull, how string) error {
 	title := fmt.Sprintf("%s (#%d, %s by %s)", p.Title, p.Number, how, sc.user.Name)
 	if err := sc.gh.MergePull(ctx, p.Number, title); err != nil {
 		return err
@@ -718,7 +716,7 @@ func (a *API) publish(ctx context.Context, sc *siteCtx, p *github.Pull, how stri
 }
 
 // markScheduled fills ScheduledAt on the pull requests that have a planned publication.
-func (a *API) markScheduled(siteID int64, pulls []github.Pull) {
+func (a *API) markScheduled(siteID int64, pulls []forge.Pull) {
 	// Display only: a read error just hides the dates, the scheduler still runs.
 	at, _ := a.Store.Schedules(siteID)
 	for i := range pulls {

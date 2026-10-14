@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useOutletContext, useParams } from 'react-router-dom';
-import { api, can, EntrySummary, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, EntrySummary, forgeNames, treeURL, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { Ctx, useCtx } from './App';
 
 import { useCached } from './cache';
@@ -75,7 +75,7 @@ export function ContentLayout() {
           )}
         </nav>
         <p className="mt-6 hidden px-2.5 text-xs leading-5 text-muted md:block">
-          <a href={`https://github.com/${site.repo}/tree/${site.branch}`} target="_blank" rel="noreferrer" className="font-mono hover:text-accent">
+          <a href={treeURL(site)} target="_blank" rel="noreferrer" className="font-mono hover:text-accent">
             {site.repo}@{site.branch}
           </a>
           <br />
@@ -140,7 +140,7 @@ export function CollectionView() {
         <h1 className="mr-auto">
           {collection.label || collection.name}
           {entries && <span className="ml-2 text-base font-normal text-muted">{entries.length}</span>}
-          {entries && refreshing && <span className="ml-3 text-xs font-normal text-muted">{t('Syncing with GitHub…')}</span>}
+          {entries && refreshing && <span className="ml-3 text-xs font-normal text-muted">{t('Syncing with {forge}…', { forge: forgeNames[site.forge] })}</span>}
         </h1>
         <input className="field w-56" type="search" placeholder={t('Search')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {can(site.role, 'editor') && collection.create !== false && (
@@ -150,7 +150,7 @@ export function CollectionView() {
         )}
       </div>
       {error && <Notice>{error}</Notice>}
-      {!entries && !error && <Loading>{t('Loading entries from GitHub…')}</Loading>}
+      {!entries && !error && <Loading>{t('Loading entries from {forge}…', { forge: forgeNames[site.forge] })}</Loading>}
       {shown && shown.length > 0 && (
         <ul className="panel divide-y divide-line">
           {shown.map((e) => (
@@ -201,7 +201,7 @@ export function PullsView() {
     <>
       <div className="mb-5">
         <h1>{t('Workflow')}</h1>
-        <p className="text-muted">{t('Drafts waiting to be published. Each one is a pull request on GitHub.')}</p>
+        <p className="text-muted">{t('Drafts waiting to be published. Each one is a pull request on {forge}.', { forge: forgeNames[site.forge] })}</p>
       </div>
       {error && <Notice>{error}</Notice>}
       <ul className="panel divide-y divide-line">
@@ -223,7 +223,7 @@ export function PullsView() {
                 </div>
               </div>
               <a className="btn" href={p.html_url} target="_blank" rel="noreferrer">
-                {t('View on GitHub')}
+                {t('View on {forge}', { forge: forgeNames[site.forge] })}
               </a>
               {can(site.role, site.workflow === 'pr' ? 'publisher' : 'editor') && (
                 <button className="btn btn-primary" onClick={() => merge(p)} disabled={!!pending}>

@@ -1,8 +1,8 @@
 # Sumigo
 
-Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages the blog content of many GitHub repositories.
+Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages the blog content of many repositories on GitHub, GitLab, Forgejo or Gitea.
 
-- **No "Login with GitHub"**: each site has a GitHub token (encrypted at rest). Users log in to Sumigo with their own account.
+- **No "Login with GitHub"**: each site has an access token (encrypted at rest). Users log in to Sumigo with their own account.
 - **Attribution**: commits are authored with the CMS user's name and email (the token owner stays the committer), and PR titles and bodies name the author.
 - **Access control**: per-site roles `viewer` < `editor` < `publisher`, plus global admins.
 - **Drafts**: "Save draft" keeps changes on `cms/<collection>/<slug>` in an open pull request, "Publish" puts them live (squash-merging the draft if there is one). Drafts are listed in the Workflow page.
@@ -27,9 +27,15 @@ Or with Docker: `make docker && docker run -p 8080:8080 --env-file .env -v sumig
 
 Dev: `go run ./cmd/sumigo` and `cd web && npm run dev` (Vite proxies `/api` to `:8080`).
 
-## GitHub token
+## Access token
 
-Use a fine-grained token scoped to the site repository, with **Contents: read/write** and **Pull requests: read/write**. The site settings page has a "Create it on GitHub" link that opens the token form with the owner and permissions prefilled, so you only pick the repository.
+Each site picks its forge and, when self-hosted, the instance URL (`https://git.example.com`).
+
+- **GitHub** (and GitHub Enterprise Server): a fine-grained token scoped to the site repository, with **Contents: read/write** and **Pull requests: read/write**. The site settings page has a "Create it on GitHub" link that opens the token form with the owner and permissions prefilled, so you only pick the repository.
+- **GitLab** (gitlab.com or self-managed): a project or personal access token with the `api` scope. Drafts are merge requests, published with a squash merge. The repository can include subgroups: `group/subgroup/project`.
+- **Forgejo / Gitea** (Codeberg included): an access token with **repository: read and write**. The instance URL is required.
+
+Listing a collection takes one GraphQL call on GitHub, and one call per entry on GitLab and Forgejo / Gitea (8 in parallel).
 
 ## `sumigo.yml`
 

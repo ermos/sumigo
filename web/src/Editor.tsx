@@ -2,7 +2,7 @@ import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffe
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Commit, Entry, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
@@ -227,7 +227,7 @@ export default function Editor() {
         <span className="h-5 w-px bg-line" />
         <span className="min-w-0 truncate px-2 text-[14px] font-medium">{title || t('New entry')}</span>
         {draft && (
-          <a href={draft.html_url} target="_blank" rel="noreferrer" title={t('Open the pull request on GitHub')}>
+          <a href={draft.html_url} target="_blank" rel="noreferrer" title={t('Open the pull request on {forge}', { forge: forgeNames[site.forge] })}>
             <DraftPill pull={draft} />
           </a>
         )}

@@ -43,9 +43,12 @@ type User struct {
 }
 
 type Site struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Repo     string `json:"repo"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Repo string `json:"repo"`
+	// Forge is github, gitlab or gitea (Gitea and Forgejo); ForgeURL its instance, empty for github.com and gitlab.com.
+	Forge    string `json:"forge"`
+	ForgeURL string `json:"forge_url"`
 	Branch   string `json:"branch"`
 	Workflow string `json:"workflow"`
 	HasToken bool   `json:"has_token"`
@@ -212,11 +215,11 @@ func (s *Store) DeleteSession(token string) error {
 
 // --- sites
 
-const siteCols = `s.id, s.name, s.repo, s.branch, s.workflow, s.token_enc IS NOT NULL, s.ai_enabled`
+const siteCols = `s.id, s.name, s.repo, s.forge, s.forge_url, s.branch, s.workflow, s.token_enc IS NOT NULL, s.ai_enabled`
 
 func scanSite(row interface{ Scan(...any) error }, extra ...any) (*Site, error) {
 	var st Site
-	dest := append([]any{&st.ID, &st.Name, &st.Repo, &st.Branch, &st.Workflow, &st.HasToken, &st.AIEnabled}, extra...)
+	dest := append([]any{&st.ID, &st.Name, &st.Repo, &st.Forge, &st.ForgeURL, &st.Branch, &st.Workflow, &st.HasToken, &st.AIEnabled}, extra...)
 	if err := row.Scan(dest...); errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
@@ -257,16 +260,16 @@ func (s *Store) GetSite(id int64) (*Site, error) {
 // SaveSite inserts or updates a site. The token is only replaced when non-empty.
 func (s *Store) SaveSite(st *Site) error {
 	if st.ID == 0 {
-		res, err := s.db.Exec(`INSERT INTO sites (name, repo, branch, workflow, ai_enabled) VALUES (?, ?, ?, ?, ?)`,
-			st.Name, st.Repo, st.Branch, st.Workflow, st.AIEnabled)
+		res, err := s.db.Exec(`INSERT INTO sites (name, repo, forge, forge_url, branch, workflow, ai_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			st.Name, st.Repo, st.Forge, st.ForgeURL, st.Branch, st.Workflow, st.AIEnabled)
 		if err != nil {
 			return err
 		}
 		if st.ID, err = res.LastInsertId(); err != nil {
 			return err
 		}
-	} else if _, err := s.db.Exec(`UPDATE sites SET name = ?, repo = ?, branch = ?, workflow = ?, ai_enabled = ? WHERE id = ?`,
-		st.Name, st.Repo, st.Branch, st.Workflow, st.AIEnabled, st.ID); err != nil {
+	} else if _, err := s.db.Exec(`UPDATE sites SET name = ?, repo = ?, forge = ?, forge_url = ?, branch = ?, workflow = ?, ai_enabled = ? WHERE id = ?`,
+		st.Name, st.Repo, st.Forge, st.ForgeURL, st.Branch, st.Workflow, st.AIEnabled, st.ID); err != nil {
 		return err
 	}
 	if st.Token != "" {

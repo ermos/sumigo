@@ -1,12 +1,10 @@
-// Package github is a minimal GitHub REST client authenticated by a token.
-package github
+package forge
 
 import (
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,103 +13,25 @@ import (
 	"time"
 )
 
-type Client struct {
+type GitHub struct {
+	client
 	Token   string
 	Repo    string // owner/name
-	BaseURL string // defaults to https://api.github.com
-	HTTP    *http.Client
+	graphQL string
 }
 
-func New(token, repo string) *Client {
-	return &Client{Token: token, Repo: repo, BaseURL: "https://api.github.com", HTTP: &http.Client{Timeout: 30 * time.Second}}
+// NewGitHub builds a client on api, https://api.github.com or https://<host>/api/v3 on GitHub Enterprise Server.
+func NewGitHub(token, repo, api string) *GitHub {
+	h := http.Header{"Authorization": {"Bearer " + token}, "X-Github-Api-Version": {"2022-11-28"}}
+	c := &GitHub{client: newClient(api+"/repos/"+repo, h), Token: token, Repo: repo, graphQL: strings.TrimSuffix(api, "/v3") + "/graphql"}
+	c.accept = "application/vnd.github+json"
+	return c
 }
 
-// Author is the identity written on commits. The token owner stays the committer.
-type Author struct {
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
-type Error struct {
-	Status  int
-	Message string
-}
-
-func (e *Error) Error() string { return fmt.Sprintf("github: %d %s", e.Status, e.Message) }
-
-func IsStatus(err error, status int) bool {
-	var e *Error
-	return errors.As(err, &e) && e.Status == status
-}
-
-func IsNotFound(err error) bool { return IsStatus(err, http.StatusNotFound) }
-
-func (c *Client) do(ctx context.Context, method, path string, in, out any) error {
-	var body io.Reader
-	if in != nil {
-		b, err := json.Marshal(in)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(b)
-	}
-	res, err := c.send(ctx, method, path, body, "application/vnd.github+json")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = res.Body.Close() }()
-	if out == nil {
-		return nil
-	}
-	return json.NewDecoder(res.Body).Decode(out)
-}
-
-// send performs an API call and turns non-2xx answers into *Error.
-func (c *Client) send(ctx context.Context, method, path string, body io.Reader, accept string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.BaseURL+"/repos/"+c.Repo+path, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", accept)
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if res.StatusCode >= 300 {
-		defer func() { _ = res.Body.Close() }()
-		var e struct{ Message string }
-		_ = json.NewDecoder(res.Body).Decode(&e)
-		return nil, &Error{Status: res.StatusCode, Message: e.Message}
-	}
-	return res, nil
-}
-
-func escapePath(p string) string {
-	parts := strings.Split(strings.Trim(p, "/"), "/")
-	for i, s := range parts {
-		parts[i] = url.PathEscape(s)
-	}
-	return strings.Join(parts, "/")
-}
-
-type File struct {
-	Name    string `json:"name"`
-	Path    string `json:"path"`
-	SHA     string `json:"sha"`
-	Type    string `json:"type"`
-	Size    int64  `json:"size"`
-	Content string `json:"content"`
-}
-
-// CheckAccess verifies the token can read the repository.
-func (c *Client) CheckAccess(ctx context.Context) error {
-	return c.do(ctx, http.MethodGet, "", nil, nil)
-}
+var _ Forge = (*GitHub)(nil)
 
 // ListDir lists a directory at ref. A missing directory is empty.
-func (c *Client) ListDir(ctx context.Context, dir, ref string) ([]File, error) {
+func (c *GitHub) ListDir(ctx context.Context, dir, ref string) ([]File, error) {
 	var files []File
 	err := c.do(ctx, http.MethodGet, "/contents/"+escapePath(dir)+"?ref="+url.QueryEscape(ref), nil, &files)
 	if IsNotFound(err) {
@@ -121,7 +41,7 @@ func (c *Client) ListDir(ctx context.Context, dir, ref string) ([]File, error) {
 }
 
 // GetFile returns a file content and its blob sha.
-func (c *Client) GetFile(ctx context.Context, path, ref string) ([]byte, string, error) {
+func (c *GitHub) GetFile(ctx context.Context, path, ref string) ([]byte, string, error) {
 	var f File
 	if err := c.do(ctx, http.MethodGet, "/contents/"+escapePath(path)+"?ref="+url.QueryEscape(ref), nil, &f); err != nil {
 		return nil, "", err
@@ -131,7 +51,7 @@ func (c *Client) GetFile(ctx context.Context, path, ref string) ([]byte, string,
 }
 
 // GetRaw streams a file body. Unlike GetFile it works past GitHub's 1MB contents limit.
-func (c *Client) GetRaw(ctx context.Context, path, ref string) (io.ReadCloser, error) {
+func (c *GitHub) GetRaw(ctx context.Context, path, ref string) (io.ReadCloser, error) {
 	res, err := c.send(ctx, http.MethodGet, "/contents/"+escapePath(path)+"?ref="+url.QueryEscape(ref), nil, "application/vnd.github.raw+json")
 	if err != nil {
 		return nil, err
@@ -140,7 +60,7 @@ func (c *Client) GetRaw(ctx context.Context, path, ref string) (io.ReadCloser, e
 }
 
 // PutFile creates (sha empty) or updates a file in a single commit on branch.
-func (c *Client) PutFile(ctx context.Context, path, branch, message string, content []byte, sha string, author Author) error {
+func (c *GitHub) PutFile(ctx context.Context, path, branch, message string, content []byte, sha string, author Author) error {
 	in := map[string]any{
 		"message": message,
 		"content": base64.StdEncoding.EncodeToString(content),
@@ -153,13 +73,13 @@ func (c *Client) PutFile(ctx context.Context, path, branch, message string, cont
 	return c.do(ctx, http.MethodPut, "/contents/"+escapePath(path), in, nil)
 }
 
-func (c *Client) DeleteFile(ctx context.Context, path, branch, message, sha string, author Author) error {
+func (c *GitHub) DeleteFile(ctx context.Context, path, branch, message, sha string, author Author) error {
 	in := map[string]any{"message": message, "sha": sha, "branch": branch, "author": author}
 	return c.do(ctx, http.MethodDelete, "/contents/"+escapePath(path), in, nil)
 }
 
 // BranchSHA returns the head commit sha of a branch.
-func (c *Client) BranchSHA(ctx context.Context, branch string) (string, error) {
+func (c *GitHub) BranchSHA(ctx context.Context, branch string) (string, error) {
 	var ref struct {
 		Object struct{ SHA string } `json:"object"`
 	}
@@ -167,65 +87,48 @@ func (c *Client) BranchSHA(ctx context.Context, branch string) (string, error) {
 	return ref.Object.SHA, err
 }
 
-func (c *Client) CreateBranch(ctx context.Context, name, fromSHA string) error {
-	return c.do(ctx, http.MethodPost, "/git/refs", map[string]string{"ref": "refs/heads/" + name, "sha": fromSHA}, nil)
+func (c *GitHub) CreateBranch(ctx context.Context, name, fromSHA string) error {
+	err := c.do(ctx, http.MethodPost, "/git/refs", map[string]string{"ref": "refs/heads/" + name, "sha": fromSHA}, nil)
+	if IsStatus(err, http.StatusUnprocessableEntity) { // already exists
+		return nil
+	}
+	return err
 }
 
-func (c *Client) DeleteBranch(ctx context.Context, name string) error {
+// ClosePull deletes the branch, which closes its pull request.
+func (c *GitHub) ClosePull(ctx context.Context, p Pull) error {
+	return c.DeleteBranch(ctx, p.Head.Ref)
+}
+
+func (c *GitHub) DeleteBranch(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/git/refs/heads/"+escapePath(name), nil, nil)
 }
 
-type Pull struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	HTMLURL string `json:"html_url"`
-	Head    struct {
-		Ref string `json:"ref"`
-	} `json:"head"`
-	User struct {
-		Login string `json:"login"`
-	} `json:"user"`
-	UpdatedAt time.Time `json:"updated_at"`
-	// ScheduledAt is set by the CMS, not GitHub: when the draft gets published on its own.
-	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
-}
-
 // ListPulls returns open pull requests whose head branch starts with prefix.
-func (c *Client) ListPulls(ctx context.Context, prefix string) ([]Pull, error) {
+func (c *GitHub) ListPulls(ctx context.Context, prefix string) ([]Pull, error) {
 	var all []Pull
 	// ponytail: first 100 open PRs only, paginate if a repo ever has more pending drafts.
 	if err := c.do(ctx, http.MethodGet, "/pulls?state=open&per_page=100", nil, &all); err != nil {
 		return nil, err
 	}
-	pulls := []Pull{}
-	for _, p := range all {
-		if strings.HasPrefix(p.Head.Ref, prefix) {
-			pulls = append(pulls, p)
-		}
-	}
-	return pulls, nil
+	return withPrefix(all, prefix), nil
 }
 
-func (c *Client) CreatePull(ctx context.Context, title, head, base, body string) (*Pull, error) {
+func (c *GitHub) CreatePull(ctx context.Context, title, head, base, body string) (*Pull, error) {
 	var p Pull
 	err := c.do(ctx, http.MethodPost, "/pulls", map[string]string{"title": title, "head": head, "base": base, "body": body}, &p)
 	return &p, err
 }
 
 // MergePull squash-merges a pull request.
-func (c *Client) MergePull(ctx context.Context, number int, title string) error {
+func (c *GitHub) MergePull(ctx context.Context, number int, title string) error {
 	return c.do(ctx, http.MethodPut, fmt.Sprintf("/pulls/%d/merge", number),
 		map[string]string{"merge_method": "squash", "commit_title": title}, nil)
 }
 
-type Blob struct {
-	Name string
-	Text string
-}
-
 // ReadDir returns the text of every file in dir at ref, plus the text of each extra
 // "ref:path" expression ("" when missing), in a single GraphQL call.
-func (c *Client) ReadDir(ctx context.Context, ref, dir string, extra []string) ([]Blob, []string, error) {
+func (c *GitHub) ReadDir(ctx context.Context, ref, dir, ext string, extra []string) ([]Blob, []string, error) {
 	owner, name, _ := strings.Cut(c.Repo, "/")
 	vars := map[string]any{"owner": owner, "name": name, "dir": ref + ":" + dir}
 	decl := "$owner: String!, $name: String!, $dir: String!"
@@ -264,7 +167,7 @@ func (c *Client) ReadDir(ctx context.Context, ref, dir string, extra []string) (
 	}
 	blobs := []Blob{}
 	for _, e := range tree.Entries {
-		if e.Type == "blob" {
+		if e.Type == "blob" && strings.HasSuffix(e.Name, ext) {
 			blobs = append(blobs, Blob{Name: e.Name, Text: e.Object.Text})
 		}
 	}
@@ -281,12 +184,12 @@ func (c *Client) ReadDir(ctx context.Context, ref, dir string, extra []string) (
 	return blobs, texts, nil
 }
 
-func (c *Client) graphql(ctx context.Context, query string, vars map[string]any, out any) error {
+func (c *GitHub) graphql(ctx context.Context, query string, vars map[string]any, out any) error {
 	b, err := json.Marshal(map[string]any{"query": query, "variables": vars})
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/graphql", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.graphQL, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -302,15 +205,8 @@ func (c *Client) graphql(ctx context.Context, query string, vars map[string]any,
 	return json.NewDecoder(res.Body).Decode(out)
 }
 
-type Commit struct {
-	SHA     string    `json:"sha"`
-	Message string    `json:"message"`
-	Author  string    `json:"author"`
-	Date    time.Time `json:"date"`
-}
-
 // ListCommits returns the last 30 commits that touched path on ref, newest first.
-func (c *Client) ListCommits(ctx context.Context, path, ref string) ([]Commit, error) {
+func (c *GitHub) ListCommits(ctx context.Context, path, ref string) ([]Commit, error) {
 	var raw []struct {
 		SHA    string `json:"sha"`
 		Commit struct {
@@ -327,14 +223,13 @@ func (c *Client) ListCommits(ctx context.Context, path, ref string) ([]Commit, e
 	}
 	commits := make([]Commit, len(raw))
 	for i, r := range raw {
-		msg, _, _ := strings.Cut(r.Commit.Message, "\n")
-		commits[i] = Commit{SHA: r.SHA, Message: msg, Author: r.Commit.Author.Name, Date: r.Commit.Author.Date}
+		commits[i] = commit(r.SHA, r.Commit.Message, r.Commit.Author.Name, r.Commit.Author.Date)
 	}
 	return commits, nil
 }
 
 // CommitPatch returns the unified diff a commit made to path, "" when GitHub has none (binary or too large).
-func (c *Client) CommitPatch(ctx context.Context, sha, path string) (string, error) {
+func (c *GitHub) CommitPatch(ctx context.Context, sha, path string) (string, error) {
 	var out struct {
 		Files []struct {
 			Filename string `json:"filename"`

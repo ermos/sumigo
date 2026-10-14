@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/ermos/sumigo/internal/ai"
-	"github.com/ermos/sumigo/internal/github"
+	"github.com/ermos/sumigo/internal/forge"
 	"github.com/ermos/sumigo/internal/store"
 )
 
@@ -96,10 +96,8 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	ghSrv := httptest.NewServer(gh)
 	defer ghSrv.Close()
 
-	a := &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	a := &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
@@ -249,10 +247,8 @@ func TestMediaAndHistoryAreServed(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	ghSrv := httptest.NewServer(&fakeGitHub{})
 	defer ghSrv.Close()
-	a := &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	a := &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
@@ -317,10 +313,8 @@ func newTestAPI(t *testing.T, gh http.Handler) (*API, *store.Store) {
 	t.Cleanup(func() { _ = st.Close() })
 	ghSrv := httptest.NewServer(gh)
 	t.Cleanup(ghSrv.Close)
-	return &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	return &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}, st
 }
 
@@ -422,5 +416,31 @@ func TestAIAssistantIsGatedAndKeepsTheKeySecret(t *testing.T) {
 	if code, _ := call(http.MethodPost, "/api/sites/1/collections/posts/ai", `{"action":"write","field":"body","brief":"Why cats nap","data":{"title":"Cats"}}`); code != http.StatusOK ||
 		!strings.Contains(gotPrompt, "Why cats nap") || !strings.Contains(gotPrompt, "Article rules") {
 		t.Fatalf("body prompt: %d %q", code, gotPrompt)
+	}
+}
+
+func TestSiteRepoFollowsTheForge(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	for body, want := range map[string]int{
+		`{"name":"P","forge":"gitlab","forge_url":"https://gitlab.com","repo":"smiti-agency/portfolio/marianne-derouet"}`: http.StatusOK,
+		`{"name":"P","forge":"github","repo":"acme/web/blog"}`:                                                            http.StatusBadRequest,
+		`{"name":"P","forge":"gitea","repo":"acme/blog"}`:                                                                 http.StatusBadRequest,
+	} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/sites", strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != want {
+			t.Errorf("%s: got %d, want %d", body, res.StatusCode, want)
+		}
 	}
 }
