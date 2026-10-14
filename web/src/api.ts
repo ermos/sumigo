@@ -156,9 +156,31 @@ export interface MediaFile {
   used: boolean;
 }
 
+const MAX_SIDE = 2000;
+
+// optimizeImage resizes a photo to MAX_SIDE and re-encodes it as WebP; drawing on a canvas drops all metadata (EXIF, GPS).
+// ponytail: GIF (animation) and SVG (vector) are sent as is; browsers without WebP encoding get JPEG, or the original PNG.
+export const optimizeImage = async (file: File): Promise<File> => {
+  if (!/^image\/(jpeg|png|webp|avif|bmp)$/.test(file.type)) return file;
+  const img = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => null);
+  if (!img) return file;
+  const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+  img.close();
+  const encode = (type: string) => new Promise<Blob | null>((ok) => canvas.toBlob(ok, type, 0.82));
+  let blob = await encode('image/webp');
+  if (blob?.type !== 'image/webp') blob = file.type === 'image/png' ? null : await encode('image/jpeg'); // JPEG would lose PNG transparency
+  if (!blob) return file;
+  const ext = blob.type === 'image/webp' ? '.webp' : '.jpg';
+  return new File([blob], file.name.replace(/\.[^.]*$/, '') + ext, { type: blob.type });
+};
+
 export const uploadMedia = async (siteId: number, file: File) => {
   const form = new FormData();
-  form.append('file', file);
+  form.append('file', await optimizeImage(file));
   return (await api<{ url: string }>('POST', `/sites/${siteId}/media`, form)).url;
 };
 
