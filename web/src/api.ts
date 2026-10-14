@@ -7,6 +7,8 @@ export interface User {
   email: string;
   name: string;
   is_admin: boolean;
+  // must_change_password: logged in with a temporary password, a new one must be chosen first.
+  must_change_password?: boolean;
 }
 
 export type Option = string | { label: string; value: string };

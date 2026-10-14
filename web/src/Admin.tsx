@@ -256,8 +256,10 @@ export function Users() {
   const { me } = useCtx();
   const [run, pending] = useAction();
   const [users, setUsers] = useState<User[]>([]);
-  const [editing, setEditing] = useState<(User & { password: string }) | null>(null);
+  const [editing, setEditing] = useState<(User & { password: string; temporary: boolean }) | null>(null);
   const [error, setError] = useState('');
+  // The generated temporary password, shown once after saving.
+  const [created, setCreated] = useState<{ name: string; password: string } | null>(null);
 
   const load = () => api<User[]>('GET', '/users').then(setUsers);
   useEffect(() => {
@@ -269,7 +271,8 @@ export function Users() {
     if (!editing) return;
     setError('');
     try {
-      await api(editing.id ? 'PUT' : 'POST', editing.id ? `/users/${editing.id}` : '/users', editing);
+      const saved = await api<User & { temporary_password?: string }>(editing.id ? 'PUT' : 'POST', editing.id ? `/users/${editing.id}` : '/users', editing);
+      setCreated(saved.temporary_password ? { name: saved.name, password: saved.temporary_password } : null);
       setEditing(null);
       load();
     } catch (err) {
@@ -279,7 +282,8 @@ export function Users() {
 
   const edit = (u: User | null) => {
     setError('');
-    setEditing(u ? { ...u, password: '' } : { id: 0, email: '', name: '', is_admin: false, password: '' });
+    setCreated(null);
+    setEditing(u ? { ...u, password: '', temporary: false } : { id: 0, email: '', name: '', is_admin: false, password: '', temporary: true });
   };
 
   const [ask, confirmDialog] = useConfirm();
@@ -301,6 +305,15 @@ export function Users() {
           {t('New user')}
         </button>
       </div>
+      {created && (
+        <div className="panel mb-6 flex flex-wrap items-center gap-3 p-4 text-[13px]">
+          <span className="flex-1">{t('Temporary password of {name}, shown once:', { name: created.name })}</span>
+          <code className="rounded bg-canvas px-2 py-1 font-mono text-sm select-all">{created.password}</code>
+          <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(created.password)}>
+            {t('Copy')}
+          </button>
+        </div>
+      )}
       {editing && (
         <form className="panel mb-6 flex flex-col gap-5 p-6" onSubmit={(e) => run('save', () => save(e))}>
           <h2>{editing.id ? t('Edit {name}', { name: editing.name }) : t('New user')}</h2>
@@ -314,20 +327,27 @@ export function Users() {
               <input className="field" type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required />
             </label>
           </div>
-          <label className="label">
-            <span>
-              {t('Password')} {editing.id > 0 && <span className="font-normal text-muted">{t('(leave empty to keep it)')}</span>}
-            </span>
-            <input
-              className="field"
-              type="password"
-              value={editing.password}
-              minLength={8}
-              required={!editing.id}
-              onChange={(e) => setEditing({ ...editing, password: e.target.value })}
-              autoComplete="new-password"
-            />
+          <label className="flex items-center gap-2 text-[13px] font-medium">
+            <input className="size-4 accent-accent" type="checkbox" checked={editing.temporary} onChange={(e) => setEditing({ ...editing, temporary: e.target.checked, password: '' })} />
+            {t(editing.id ? 'Reset with a temporary password' : 'Temporary password')}
+            <span className="font-normal text-muted">{t('(changed at the first login)')}</span>
           </label>
+          {!editing.temporary && (
+            <label className="label">
+              <span>
+                {t('Password')} {editing.id > 0 && <span className="font-normal text-muted">{t('(leave empty to keep it)')}</span>}
+              </span>
+              <input
+                className="field"
+                type="password"
+                value={editing.password}
+                minLength={8}
+                required={!editing.id}
+                onChange={(e) => setEditing({ ...editing, password: e.target.value })}
+                autoComplete="new-password"
+              />
+            </label>
+          )}
           <label className="flex items-center gap-2 text-[13px] font-medium">
             <input className="size-4 accent-accent" type="checkbox" checked={editing.is_admin} onChange={(e) => setEditing({ ...editing, is_admin: e.target.checked })} /> {t('Administrator')}{' '}
             <span className="font-normal text-muted">{t('(manages users and sites, sees every site)')}</span>
@@ -356,7 +376,9 @@ export function Users() {
           <tbody className="divide-y divide-line">
             {users.map((u) => (
               <tr key={u.id}>
-                <td className="px-4 py-3 font-medium">{u.name}</td>
+                <td className="px-4 py-3 font-medium">
+                  {u.name} {u.must_change_password && <span className="pill ml-1 bg-canvas text-muted ring-1 ring-line">{t('Temporary password')}</span>}
+                </td>
                 <td className="hidden px-4 py-3 text-muted sm:table-cell">{u.email}</td>
                 <td className="px-4 py-3">{u.is_admin ? <span className="pill bg-accent-soft text-accent">{t('Admin')}</span> : <span className="text-muted">{t('Member')}</span>}</td>
                 <td className="space-x-4 px-4 py-3 text-right text-[13px] font-medium">

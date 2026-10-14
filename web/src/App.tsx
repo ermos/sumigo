@@ -46,6 +46,7 @@ export default function App() {
 
   if (me === undefined) return null;
   if (me === null) return <Login onLogin={setMe} />;
+  if (me.must_change_password) return <ChoosePassword me={me} onDone={setMe} onLogout={() => setMe(null)} />;
 
   return (
     <>
@@ -282,6 +283,54 @@ function Home() {
           </Link>
         )
       )}
+    </div>
+  );
+}
+
+// ChoosePassword replaces the temporary password an admin gave, before anything else.
+function ChoosePassword({ me, onDone, onLogout }: { me: User; onDone: (u: User) => void; onLogout: () => void }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [run, pending] = useAction();
+  const [error, setError] = useState('');
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) return setError(t('The two passwords differ.'));
+    try {
+      onDone(await api<User>('POST', '/me/password', { password }));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  const logout = async () => {
+    await api('POST', '/logout');
+    onLogout();
+  };
+  return (
+    <div className="grid min-h-screen place-items-center px-4">
+      <form className="w-full max-w-sm" onSubmit={(e) => run('save', () => submit(e))}>
+        <div className="panel flex flex-col gap-4 p-6 shadow-sm">
+          <div>
+            <h1 className="text-xl">{t('Choose your password')}</h1>
+            <p className="text-[13px] text-muted">{me.email}</p>
+          </div>
+          <label className="label">
+            {t('New password')}
+            <input className="field" type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required autoFocus autoComplete="new-password" />
+          </label>
+          <label className="label">
+            {t('Confirm the password')}
+            <input className="field" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} minLength={8} required autoComplete="new-password" />
+          </label>
+          {error && <p className="text-[13px] text-danger">{error}</p>}
+          <button className="btn btn-primary py-2" disabled={!!pending}>
+            <Pending on={!!pending}>{t('Save the password')}</Pending>
+          </button>
+          <button type="button" className="text-[13px] text-muted hover:text-ink" onClick={logout}>
+            {t('Log out')}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

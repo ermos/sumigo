@@ -520,3 +520,69 @@ func TestCustomDomainsOpenASiteAndAllowCORSLive(t *testing.T) {
 		t.Fatalf("check removed domain: %d", res.StatusCode)
 	}
 }
+
+func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _ := st.CreateSession(admin.ID, time.Hour)
+	call := func(token, method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	login := func(password string) string {
+		res, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"email":"jane@acme.io","password":"`+password+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range res.Cookies() {
+			if c.Name == sessionCookie {
+				return c.Value
+			}
+		}
+		return ""
+	}
+
+	_, body := call(adminToken, http.MethodPost, "/api/users", `{"email":"jane@acme.io","name":"Jane","temporary":true}`)
+	var created struct {
+		TemporaryPassword string `json:"temporary_password"`
+	}
+	_ = json.Unmarshal([]byte(body), &created)
+	if len(created.TemporaryPassword) != 12 {
+		t.Fatalf("created: %s", body)
+	}
+	jane := login(created.TemporaryPassword)
+	if code, body := call(jane, http.MethodGet, "/api/sites", ""); code != http.StatusForbidden || !strings.Contains(body, "password_change_required") {
+		t.Fatalf("temporary password opened the app: %d %s", code, body)
+	}
+	if _, body := call(jane, http.MethodGet, "/api/me", ""); !strings.Contains(body, `"must_change_password":true`) {
+		t.Fatalf("me: %s", body)
+	}
+	if code, _ := call(jane, http.MethodPost, "/api/me/password", `{"password":"short"}`); code != http.StatusBadRequest {
+		t.Fatalf("short password accepted: %d", code)
+	}
+	// No current password needed to replace the temporary one.
+	if code, body := call(jane, http.MethodPost, "/api/me/password", `{"password":"my-own-secret"}`); code != http.StatusOK {
+		t.Fatalf("change: %d %s", code, body)
+	}
+	if code, _ := call(jane, http.MethodGet, "/api/sites", ""); code != http.StatusOK {
+		t.Fatalf("app still locked: %d", code)
+	}
+	if login(created.TemporaryPassword) != "" || login("my-own-secret") == "" {
+		t.Fatal("the temporary password must be replaced by the new one")
+	}
+	// From now on, changing it asks for the current one.
+	if code, _ := call(jane, http.MethodPost, "/api/me/password", `{"current":"wrong","password":"another-secret"}`); code != http.StatusBadRequest {
+		t.Fatalf("changed without the current password: %d", code)
+	}
+}
