@@ -57,6 +57,7 @@ func (a *API) Handler() http.Handler {
 	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireUser(h, true)) }
 
 	auth("GET /api/me", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, userFrom(r)) })
+	auth("PUT /api/me", a.saveMe)
 	auth("POST /api/me/password", a.changePassword)
 
 	admin("GET /api/settings/ai", a.getAI)
@@ -295,6 +296,25 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 		store.User
 		TemporaryPassword string `json:"temporary_password"`
 	}{u, in.Password})
+}
+
+// saveMe renames the logged in user: the name signs their commits. Email and role stay with the admins.
+func (a *API) saveMe(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Name string }
+	if !readJSON(w, r, &in) {
+		return
+	}
+	u := userFrom(r)
+	u.Name = strings.TrimSpace(in.Name)
+	if u.Name == "" {
+		httpError(w, http.StatusBadRequest, "email_name_required", "email and name are required")
+		return
+	}
+	if err := a.Store.UpdateUser(u, ""); err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, u)
 }
 
 // temporaryPassword is easy to read out or type: no 0/O, 1/l/I.
