@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,7 +15,7 @@ import (
 
 	"github.com/ermos/sumigo/internal/ai"
 	"github.com/ermos/sumigo/internal/content"
-	"github.com/ermos/sumigo/internal/github"
+	"github.com/ermos/sumigo/internal/forge"
 	"github.com/ermos/sumigo/internal/store"
 )
 
@@ -25,8 +26,8 @@ const (
 
 type API struct {
 	Store *store.Store
-	// NewGitHub builds a client for a repo; replaceable in tests.
-	NewGitHub func(token, repo string) *github.Client
+	// NewForge builds the client of a site repo (see forge.New); replaceable in tests.
+	NewForge func(kind, baseURL, token, repo string) forge.Forge
 	// NewAI builds the AI assistant client; replaceable in tests.
 	NewAI func(ai.Config) *ai.Client
 	// SecureCookie sets the Secure flag on the session cookie (enable behind HTTPS).
@@ -134,12 +135,12 @@ func httpError(w http.ResponseWriter, status int, code, msg string, p ...params)
 
 // fail maps an error to an HTTP response, hiding internal details.
 func fail(w http.ResponseWriter, err error) {
-	var gh *github.Error
+	var gh *forge.Error
 	switch {
-	case errors.Is(err, store.ErrNotFound) || github.IsNotFound(err):
+	case errors.Is(err, store.ErrNotFound) || forge.IsNotFound(err):
 		httpError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.As(err, &gh):
-		httpError(w, http.StatusBadGateway, "github", gh.Error(), params{"detail": gh.Error()})
+		httpError(w, http.StatusBadGateway, "forge", gh.Error(), params{"detail": gh.Error()})
 	default:
 		log.Printf("api error: %v", err)
 		httpError(w, http.StatusInternalServerError, "internal", "internal error")
@@ -290,7 +291,7 @@ func (a *API) getSite(w http.ResponseWriter, r *http.Request) {
 	}{Site: sc.site}
 	_, out.AI = a.aiReady(sc.site)
 	if sc.gh == nil {
-		out.ConfigError = "no GitHub token configured"
+		out.ConfigError = "no access token configured"
 	} else if cfg, err := a.config(r.Context(), sc, false); err != nil {
 		out.ConfigError = err.Error()
 	} else {
@@ -305,8 +306,20 @@ func (a *API) saveSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st.ID = pathID(r, "site")
-	if st.Name == "" || strings.Count(st.Repo, "/") != 1 {
+	st.Repo = strings.Trim(st.Repo, "/")
+	// GitLab nests projects in subgroups: group/subgroup/name.
+	if st.Name == "" || !strings.Contains(st.Repo, "/") || (st.Forge != forge.KindGitLab && strings.Count(st.Repo, "/") != 1) {
 		httpError(w, http.StatusBadRequest, "name_repo_required", "name and repo (owner/name) are required")
+		return
+	}
+	switch st.Forge {
+	case forge.KindGitHub, forge.KindGitLab, forge.KindGitea:
+	default:
+		st.Forge = forge.KindGitHub
+	}
+	st.ForgeURL = strings.TrimRight(st.ForgeURL, "/")
+	if u, err := url.Parse(st.ForgeURL); err != nil || (st.ForgeURL != "" && (u.Scheme != "https" && u.Scheme != "http" || u.Host == "")) || (st.Forge == forge.KindGitea && st.ForgeURL == "") {
+		httpError(w, http.StatusBadRequest, "invalid_forge_url", "invalid instance URL (https://git.example.com), required for Gitea and Forgejo")
 		return
 	}
 	if st.Branch == "" {

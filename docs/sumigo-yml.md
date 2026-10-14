@@ -1,6 +1,6 @@
 # `sumigo.yml` reference
 
-`sumigo.yml` describes the content model of a site: where uploads go, which folders hold entries, and which fields each entry has. It lives **at the root of the site repository**, on the branch configured for the site in the CMS. The CMS reads it from GitHub, so changing the content model is a regular commit in the site repo.
+`sumigo.yml` describes the content model of a site: where uploads go, which folders hold entries, and which fields each entry has. It lives **at the root of the site repository**, on the branch configured for the site in the CMS. The CMS reads it from the forge (GitHub, GitLab, Forgejo or Gitea), so changing the content model is a regular commit in the site repo.
 
 The format follows [Decap CMS](https://decapcms.org/docs/configuration-options/), so most Decap configs can be copied over with little or no change (see [Differences with Decap](#differences-with-decap-cms)).
 
@@ -160,7 +160,7 @@ Any other widget name (for example Decap's `relation` or `file`) is shown as a s
 
 ## Caching
 
-The CMS caches `sumigo.yml` for one minute per site. To apply a change right away, click **Test GitHub access** in the site settings: it reloads the file and shows how many collections were found. Errors (missing file, invalid YAML, collection without a name) are shown at the top of the site page.
+The CMS caches `sumigo.yml` for one minute per site. To apply a change right away, click **Test access** in the site settings: it reloads the file and shows how many collections were found. Errors (missing file, invalid YAML, collection without a name) are shown at the top of the site page.
 
 ## Differences with Decap CMS
 

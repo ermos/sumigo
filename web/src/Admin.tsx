@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
-import { Access, AISettings, api, Role, Site, User } from './api';
+import { Access, AISettings, api, Forge, forgeNames, forgeURL, Role, Site, User } from './api';
 import { Monogram, roleNames, useCtx } from './App';
 import { t } from './i18n';
 import { Pending, useAction } from './ui';
@@ -10,15 +10,21 @@ const emptySite: Site = {
   id: 0,
   name: '',
   repo: '',
+  forge: 'github',
+  forge_url: '',
   branch: 'main',
   workflow: 'direct',
   has_token: false,
   ai_enabled: false,
 };
 
-// tokenURL opens GitHub's fine-grained token form with owner and permissions prefilled.
-// GitHub does not allow prefilling the repository, the user picks it in the form.
-function tokenURL(repo: string) {
+// tokenURL opens the token form of the forge, prefilled where the forge allows it.
+// GitHub prefills owner and permissions but not the repository, the user picks it in the form.
+function tokenURL(site: Site) {
+  const base = forgeURL(site);
+  if (site.forge === 'gitlab') return `${base}/-/user_settings/personal_access_tokens?name=Sumigo&scopes=api`;
+  if (site.forge === 'gitea') return site.forge_url && `${base}/user/settings/applications`;
+  const repo = site.repo;
   const [owner, name] = repo.trim().split('/');
   if (!owner || !name) return '';
   const params = new URLSearchParams({
@@ -29,7 +35,7 @@ function tokenURL(repo: string) {
     contents: 'write',
     pull_requests: 'write',
   });
-  return `https://github.com/settings/personal-access-tokens/new?${params}`;
+  return `${base}/settings/personal-access-tokens/new?${params}`;
 }
 
 export function SiteForm() {
@@ -67,7 +73,8 @@ export function SiteForm() {
     try {
       const res = await api<{ collections: number }>('POST', `/sites/${site.id}/check`);
       setStatus(
-        t('GitHub access OK, sumigo.yml loaded with {n} collection(s)', {
+        t('{forge} access OK, sumigo.yml loaded with {n} collection(s)', {
+          forge: forgeNames[site.forge],
           n: res.collections,
         }),
       );
@@ -102,7 +109,7 @@ export function SiteForm() {
           </Link>
         )}
         <h1>{t(site.id ? 'Site settings' : 'Add a site')}</h1>
-        {!site.id && <p className="text-muted">{t('Connect a GitHub repository that contains a sumigo.yml.')}</p>}
+        {!site.id && <p className="text-muted">{t('Connect a Git repository that contains a sumigo.yml.')}</p>}
       </div>
       <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
         <div className="border-b border-line px-6 py-4">
@@ -116,6 +123,29 @@ export function SiteForm() {
           </label>
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="label">
+              {t('Forge')}
+              <select className="field" value={site.forge} onChange={(e) => setSite({ ...site, forge: e.target.value as Forge })}>
+                {Object.entries(forgeNames).map(([k, name]) => (
+                  <option key={k} value={k}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="label">
+              {t('Instance URL')}
+              <input
+                className="field font-mono"
+                type="url"
+                value={site.forge_url}
+                onChange={set('forge_url')}
+                placeholder={site.forge === 'gitea' ? 'https://codeberg.org' : forgeURL({ ...site, forge_url: '' })}
+                required={site.forge === 'gitea'}
+              />
+            </label>
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="label">
               {t('Repository')}
               <input className="field font-mono" value={site.repo} onChange={set('repo')} placeholder="acme/blog" required />
             </label>
@@ -126,22 +156,33 @@ export function SiteForm() {
           </div>
           <label className="label">
             <span>
-              {t('GitHub token')} {site.has_token && <span className="font-normal text-muted">{t('(already set, leave empty to keep it)')}</span>}
+              {t('Access token')} {site.has_token && <span className="font-normal text-muted">{t('(already set, leave empty to keep it)')}</span>}
             </span>
-            <input className="field font-mono" type="password" value={site.token ?? ''} onChange={set('token')} placeholder="github_pat_…" autoComplete="off" />
+            <input className="field font-mono" type="password" value={site.token ?? ''} onChange={set('token')} placeholder={{ github: 'github_pat_…', gitlab: 'glpat-…', gitea: '' }[site.forge]} autoComplete="off" />
             <span className="text-xs font-normal text-muted">
-              {t('Fine-grained token with Contents and Pull requests read/write on this repository.')}{' '}
-              {tokenURL(site.repo) ? (
+              {t(
+                site.forge === 'github'
+                  ? 'Fine-grained token with Contents and Pull requests read/write on this repository.'
+                  : site.forge === 'gitlab'
+                    ? 'Project or personal access token with the api scope.'
+                    : 'Access token with read and write on repository.',
+              )}{' '}
+              {tokenURL(site) ? (
                 <>
-                  <a href={tokenURL(site.repo)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                    {t('Create it on GitHub')}
-                  </a>{' '}
-                  {repoHint[0]}
-                  <strong className="font-medium text-ink">{site.repo}</strong>
-                  {repoHint[1]}
+                  <a href={tokenURL(site)} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    {t('Create it on {forge}', { forge: forgeNames[site.forge] })}
+                  </a>
+                  {site.forge === 'github' && (
+                    <>
+                      {' '}
+                      {repoHint[0]}
+                      <strong className="font-medium text-ink">{site.repo}</strong>
+                      {repoHint[1]}
+                    </>
+                  )}
                 </>
               ) : (
-                t('Fill the repository to get a prefilled GitHub link.')
+                t('Fill the repository to get a prefilled link.')
               )}
             </span>
           </label>
@@ -176,7 +217,7 @@ export function SiteForm() {
               </button>
               <span className="flex-1" />
               <button type="button" className="btn" onClick={() => run('check', check)} disabled={!!pending}>
-                <Pending on={pending === 'check'}>{t(pending === 'check' ? 'Testing…' : 'Test GitHub access')}</Pending>
+                <Pending on={pending === 'check'}>{t(pending === 'check' ? 'Testing…' : 'Test access')}</Pending>
               </button>
             </>
           )}

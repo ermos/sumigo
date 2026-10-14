@@ -69,7 +69,7 @@ func (a *API) RunScheduler(ctx context.Context, every time.Duration) {
 	}
 }
 
-// ponytail: a publish that fails (merge conflict, GitHub down) is retried on every tick and logged;
+// ponytail: a publish that fails (merge conflict, forge down) is retried on every tick and logged;
 // store the last error and show it in the UI if that turns out to happen often.
 func (a *API) publishDue(ctx context.Context, now time.Time) {
 	due, err := a.Store.DueSchedules(now)
@@ -106,7 +106,7 @@ func (a *API) publishScheduled(ctx context.Context, s store.Schedule) error {
 	if err != nil {
 		return err
 	}
-	sc.gh = a.NewGitHub(token, site.Repo)
+	sc.gh = a.NewForge(site.Forge, site.ForgeURL, token, site.Repo)
 	pulls, err := sc.gh.ListPulls(ctx, branchPrefix)
 	if err != nil {
 		return err

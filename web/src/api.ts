@@ -42,6 +42,9 @@ export interface Site {
   id: number;
   name: string;
   repo: string;
+  forge: Forge;
+  // forge_url is the instance, empty for github.com and gitlab.com.
+  forge_url: string;
   branch: string;
   workflow: 'direct' | 'pr';
   has_token: boolean;
@@ -49,6 +52,16 @@ export interface Site {
   role?: Role;
   token?: string;
 }
+
+export type Forge = 'github' | 'gitlab' | 'gitea';
+
+export const forgeNames: Record<Forge, string> = { github: 'GitHub', gitlab: 'GitLab', gitea: 'Forgejo / Gitea' };
+
+// forgeURL is the web URL of the instance hosting the site.
+export const forgeURL = (site: Pick<Site, 'forge' | 'forge_url'>) => site.forge_url || (site.forge === 'gitlab' ? 'https://gitlab.com' : 'https://github.com');
+
+// treeURL links to the files of the site branch on its forge.
+export const treeURL = (site: Site) => `${forgeURL(site)}/${site.repo}/${{ github: 'tree', gitlab: '-/tree', gitea: 'src/branch' }[site.forge]}/${site.branch}`;
 
 export interface SiteDetail extends Site {
   config: Config | null;

@@ -236,7 +236,7 @@ function Home() {
     <div className="mx-auto max-w-2xl">
       <h1>{t('Hello {name}', { name: me.name })}</h1>
       <p className="mt-1 text-muted">
-        {t(sites.length ? 'Choose a site to manage its articles.' : me.is_admin ? 'Connect a GitHub repository to start editing its content.' : 'Ask an admin to give you access to a site.')}
+        {t(sites.length ? 'Choose a site to manage its articles.' : me.is_admin ? 'Connect a Git repository to start editing its content.' : 'Ask an admin to give you access to a site.')}
       </p>
       {sites.length > 0 ? (
         <ul className="panel mt-6 divide-y divide-line">

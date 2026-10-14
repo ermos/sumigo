@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/ermos/sumigo/internal/ai"
-	"github.com/ermos/sumigo/internal/github"
+	"github.com/ermos/sumigo/internal/forge"
 	"github.com/ermos/sumigo/internal/store"
 )
 
@@ -96,10 +96,8 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	ghSrv := httptest.NewServer(gh)
 	defer ghSrv.Close()
 
-	a := &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	a := &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
@@ -232,10 +230,8 @@ func TestMediaAndHistoryAreServed(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	ghSrv := httptest.NewServer(&fakeGitHub{})
 	defer ghSrv.Close()
-	a := &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	a := &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}
 	srv := httptest.NewServer(a.Handler())
 	defer srv.Close()
@@ -300,10 +296,8 @@ func newTestAPI(t *testing.T, gh http.Handler) (*API, *store.Store) {
 	t.Cleanup(func() { _ = st.Close() })
 	ghSrv := httptest.NewServer(gh)
 	t.Cleanup(ghSrv.Close)
-	return &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
-		c := github.New(token, repo)
-		c.BaseURL = ghSrv.URL
-		return c
+	return &API{Store: st, NewForge: func(_, _, token, repo string) forge.Forge {
+		return forge.NewGitHub(token, repo, ghSrv.URL)
 	}}, st
 }
 

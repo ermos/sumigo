@@ -12,7 +12,7 @@ import (
 
 	"github.com/ermos/sumigo/internal/ai"
 	"github.com/ermos/sumigo/internal/api"
-	"github.com/ermos/sumigo/internal/github"
+	"github.com/ermos/sumigo/internal/forge"
 	"github.com/ermos/sumigo/internal/store"
 	"github.com/ermos/sumigo/web"
 )
@@ -27,7 +27,7 @@ func env(key, def string) string {
 func main() {
 	secret := os.Getenv("SECRET_KEY")
 	if len(secret) < 16 {
-		log.Fatal("SECRET_KEY must be set (16+ chars); it encrypts GitHub tokens at rest")
+		log.Fatal("SECRET_KEY must be set (16+ chars); it encrypts the access tokens of sites at rest")
 	}
 	st, err := store.Open(env("DATABASE_PATH", "sumigo.db"), secret)
 	if err != nil {
@@ -39,7 +39,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	a := &api.API{Store: st, NewGitHub: github.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
+	a := &api.API{Store: st, NewForge: forge.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", a.Handler())
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
