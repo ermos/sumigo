@@ -70,6 +70,22 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The documentation builds on every PR, so a broken link fails here (onBrokenLinks: throw).
+  docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
   security:
     runs-on: ubuntu-latest
     steps:

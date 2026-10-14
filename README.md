@@ -12,78 +12,25 @@ Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages
 - **Scheduled publishing**: a draft can be published at a set date. The server merges it then, as the user who scheduled it, even with nobody in the CMS.
 - **History**: every version of an entry (its commits) can be previewed and restored into the editor.
 - **AI assistant**: suggests field values (titles, descriptions) and proofreads Markdown. Works with Anthropic, OpenAI, Mistral, Google Gemini, OpenRouter, or any OpenAI-compatible API (Ollama…). An admin picks the provider and stores its API key (encrypted, never sent to the browser) in Administration > AI assistant, then turns it on per site.
-- The content model lives **in the target repo**, in a Decap CMS style `sumigo.yml` at the repository root ([reference](docs/sumigo-yml.md)). Entries are Markdown with YAML front matter.
+- The content model lives **in the target repo**, in a Decap CMS style `sumigo.yml` at the repository root ([reference](https://ermos.github.io/sumigo/configuration/sumigo-yml)). Entries are Markdown with YAML front matter.
 - Listing a collection reads every entry (and every PR draft) in **one GraphQL call**, so the list shows titles and dates.
 
-## Run
+**Documentation: https://ermos.github.io/sumigo/** (installation, `sumigo.yml`, forges, users and roles, custom domains, single sign-on, releases). Its sources are in [`docs/`](docs/), a Docusaurus site.
+
+## Quick start
 
 ```bash
-cp .env.example .env   # set SECRET_KEY
-make build-web
-set -a; . ./.env; set +a; ./bin/sumigo
+docker run -d -p 8080:8080 -e SECRET_KEY="$(openssl rand -hex 32)" -v sumigo:/data ghcr.io/ermos/sumigo:latest
 ```
 
-On the first start, with no user yet, the server logs a setup code:
+On the first start, the server logs a setup code: open the web app, enter it, and create your account, the admin. See [Installation](https://ermos.github.io/sumigo/installation) for the binary, the environment variables and running behind a reverse proxy.
 
-```
-no user yet: open the web app and enter this setup code to create the admin account: 3f2b9c1e-…
-```
+## Development
 
-Open the web app, enter that code, and create your account: it is the admin. The code only lives in memory (a restart prints a new one) and stops working once the admin exists.
-
-Or with Docker: `docker run -p 8080:8080 --env-file .env -v sumigo:/data ghcr.io/ermos/sumigo:latest` (or `make docker` to build it locally).
-
-## Releases
-
-Versions follow [semver](https://semver.org) and are computed from the [conventional commits](https://www.conventionalcommits.org) merged on `main`: `feat` bumps the minor, `fix` and `perf` the patch, `feat!` or a `BREAKING CHANGE:` footer the major. Other types (`chore`, `docs`, `ci`, `refactor`…) release nothing.
-
-Each release gets a git tag, a GitHub release with its changelog, and a multi-arch (amd64, arm64) image: `ghcr.io/ermos/sumigo:<version>`, `:<major>.<minor>` and `:latest`. The version shows in the startup log.
-
-Dev: `go run ./cmd/sumigo` and `cd web && npm run dev` (Vite proxies `/api` to `:8080`).
-
-## Access token
-
-Each site picks its forge and, when self-hosted, the instance URL (`https://git.example.com`).
-
-- **GitHub** (and GitHub Enterprise Server): a fine-grained token scoped to the site repository, with **Contents: read/write** and **Pull requests: read/write**. The site settings page has a "Create it on GitHub" link that opens the token form with the owner and permissions prefilled, so you only pick the repository.
-- **GitLab** (gitlab.com or self-managed): a project or personal access token with the `api` scope. Drafts are merge requests, published with a squash merge. The repository can include subgroups: `group/subgroup/project`.
-- **Forgejo / Gitea** (Codeberg included): an access token with **repository: read and write**. The instance URL is required.
-
-Listing a collection takes one GraphQL call on GitHub, and one call per entry on GitLab and Forgejo / Gitea (8 in parallel).
-
-## Custom domains
-
-In the site settings, admins list domains (one per line) that open the site directly, for a white-label CMS: `cms.client.com` with a CNAME to the instance. Declared domains may also call the API from the browser (CORS); adding or removing one applies right away.
-
-TLS is left to a reverse proxy. With Caddy, on-demand TLS issues a certificate only for the declared domains:
-
-```caddy
-{
-	on_demand_tls {
-		ask http://localhost:8080/api/domains/check
-	}
-}
-
-cms.example.com {
-	reverse_proxy localhost:8080
-}
-
-https:// {
-	tls {
-		on_demand
-	}
-	reverse_proxy localhost:8080
-}
+```bash
+go run ./cmd/sumigo          # API on :8080
+cd web && npm run dev        # web app, Vite proxies /api to :8080
+cd docs && npm start         # documentation
 ```
 
-## Single sign-on
-
-Admin > Single sign-on connects an OpenID Connect provider (Keycloak, Authentik, Zitadel, Okta, Entra ID, Google…). Create a confidential client with the authorization code flow, and register one redirect URI per domain the CMS is reached on, all listed on that page: `https://<domain>/api/auth/oidc/callback`.
-
-- Users are matched by email. "Create the account on first login" adds unknown emails automatically; otherwise an admin creates the user first, and site roles stay managed in Sumigo.
-- "Admin group" makes the members of that `groups` claim admins, and removes admin rights from the others, on each login.
-- Password login keeps working, so the first admin is never locked out by a provider misconfiguration.
-
-## `sumigo.yml`
-
-Each site repository declares its content model in a `sumigo.yml` at its root (Decap CMS format). Full reference: [docs/sumigo-yml.md](docs/sumigo-yml.md).
+Versions are released automatically from the conventional commits merged on `main`, see [Releases](https://ermos.github.io/sumigo/releases).

@@ -3,3 +3,5 @@ web/dist
 bin
 *.db*
 .env
+# Documentation site: published on GitHub Pages, never part of the image.
+docs/

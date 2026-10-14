@@ -101,7 +101,7 @@ export function SetupView() {
             <textarea className="field min-h-[28rem] w-full font-mono text-xs leading-5" value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false} aria-label="sumigo.yml" />
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-line bg-canvas/60 px-4 py-3">
-            <a href="https://github.com/ermos/sumigo/blob/main/docs/sumigo-yml.md" target="_blank" rel="noreferrer" className="mr-auto text-[13px] text-accent hover:underline">
+            <a href="https://ermos.github.io/sumigo/configuration/sumigo-yml" target="_blank" rel="noreferrer" className="mr-auto text-[13px] text-accent hover:underline">
               {t('sumigo.yml reference')}
             </a>
             <button type="button" className="btn btn-primary" onClick={() => run('apply', apply)} disabled={!!pending || !yaml.trim()}>
