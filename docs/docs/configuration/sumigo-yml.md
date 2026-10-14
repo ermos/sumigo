@@ -1,3 +1,8 @@
+---
+title: sumigo.yml reference
+sidebar_label: sumigo.yml
+---
+
 # `sumigo.yml` reference
 
 `sumigo.yml` describes the content model of a site: where uploads go, which folders hold entries, and which fields each entry has. It lives **at the root of the site repository**, on the branch configured for the site in the CMS. The CMS reads it from the forge (GitHub, GitLab, Forgejo or Gitea), so changing the content model is a regular commit in the site repo.

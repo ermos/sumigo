@@ -101,7 +101,7 @@ export default function ConfigEditor() {
       {/* Sticky under the app header (h-14), so saving stays at hand at the bottom of a long file. */}
       <div className="sticky top-14 z-10 -mt-3 bg-canvas pt-3">
         <PageHeader title="sumigo.yml">
-          <a href="https://github.com/ermos/sumigo/blob/main/docs/sumigo-yml.md" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
+          <a href="https://ermos.github.io/sumigo/configuration/sumigo-yml" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
             {t('sumigo.yml reference')}
           </a>
           <button type="button" className="btn btn-primary" onClick={save} disabled={!loaded || saving} title="Cmd+S / Ctrl+S">
