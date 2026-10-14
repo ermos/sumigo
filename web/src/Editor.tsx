@@ -2,7 +2,7 @@ import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffe
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Commit, Entry, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, Commit, Entry, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
@@ -25,13 +25,14 @@ export default function Editor() {
   const edited = useRef(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState<'draft' | 'publish' | 'delete' | null>(null);
+  const [busy, setBusy] = useState<'draft' | 'publish' | 'delete' | 'discard' | null>(null);
   const [dirty, setDirty] = useState(false);
   // The right pane shows the live preview, or the history of the entry.
   const [panel, setPanel] = useState<'preview' | 'history' | null>('preview');
   // Bumped on restore so fields holding their own text state start over.
   const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
+  const deleteDialog = useRef<HTMLDialogElement>(null);
   const base = `/sites/${site.id}/collections/${col}/entries`;
 
   useEffect(() => {
@@ -118,14 +119,28 @@ export default function Editor() {
     }
   };
 
-  const remove = async () => {
-    if (!slug || !confirm(`${t('Delete {name}?', { name: slug })} ${t(draft ? 'The draft pull request will be closed.' : 'This commits the deletion.')}`)) return;
-    setBusy('delete');
+  // remove deletes the entry, or only its draft: the form then falls back to the published version, if any.
+  const remove = async (onlyDraft: boolean) => {
+    if (!slug) return;
+    const url = `${base}/${encodeURIComponent(slug)}`;
+    setBusy(onlyDraft ? 'discard' : 'delete');
     try {
-      await api('DELETE', `${base}/${encodeURIComponent(slug)}`);
-      updateList((list) => list.filter((e) => e.slug !== slug));
-      navigate(`/sites/${site.id}/c/${col}`);
+      await api('DELETE', onlyDraft ? url + '?only=draft' : url);
+      const published = onlyDraft ? await api<Entry>('GET', url).catch((e) => (e instanceof HttpError && e.status === 404 ? null : Promise.reject(e))) : null;
+      deleteDialog.current?.close();
+      if (!published) {
+        updateList((list) => list.filter((e) => e.slug !== slug));
+        navigate(`/sites/${site.id}/c/${col}`);
+        return;
+      }
+      setData(published.data);
+      setDraft(null);
+      setFormKey((k) => k + 1);
+      setDirty(false);
+      setStatus(t('Draft discarded'));
+      updateList((list) => list.map((e) => (e.slug === slug ? { ...e, data: published.data, draft: undefined } : e)));
     } catch (err) {
+      deleteDialog.current?.close();
       setError((err as Error).message);
     } finally {
       setBusy(null);
@@ -202,11 +217,31 @@ export default function Editor() {
               ),
           )}
         </div>
-        {slug && can(site.role, 'publisher') && (
-          <button type="button" className="btn btn-danger" onClick={remove} disabled={!!busy}>
-            <Pending on={busy === 'delete'}>{t(busy === 'delete' ? 'Deleting…' : 'Delete')}</Pending>
+        {slug && (canPublish || (draft && !readOnly)) && (
+          <button type="button" className="btn btn-danger" onClick={() => deleteDialog.current?.showModal()} disabled={!!busy}>
+            {t('Delete')}
           </button>
         )}
+        <dialog ref={deleteDialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30" onCancel={(e) => busy && e.preventDefault()}>
+          <div className="flex flex-col gap-4 p-6">
+            <h2>{t('Delete {name}?', { name: title || slug || '' })}</h2>
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" className="btn" autoFocus onClick={() => deleteDialog.current?.close()} disabled={!!busy}>
+                {t('Cancel')}
+              </button>
+              {draft && !readOnly && (
+                <button type="button" className="btn" onClick={() => remove(true)} disabled={!!busy}>
+                  <Pending on={busy === 'discard'}>{t('Discard draft')}</Pending>
+                </button>
+              )}
+              {canPublish && (
+                <button type="button" className="btn btn-danger" onClick={() => remove(false)} disabled={!!busy}>
+                  <Pending on={busy === 'delete'}>{t(busy === 'delete' ? 'Deleting…' : 'Delete entry')}</Pending>
+                </button>
+              )}
+            </div>
+          </div>
+        </dialog>
         {!readOnly && (
           <button name="draft" className="btn" disabled={!!busy || !data} title={t('Keeps the changes in a pull request without publishing them (Cmd+S / Ctrl+S)')}>
             <Pending on={busy === 'draft'}>{t(busy === 'draft' ? 'Saving…' : 'Save draft')}</Pending>
