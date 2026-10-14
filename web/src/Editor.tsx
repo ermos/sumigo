@@ -32,6 +32,7 @@ export default function Editor() {
   // Bumped on restore so fields holding their own text state start over.
   const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
+  const leaveDialog = useRef<HTMLDialogElement>(null);
   const base = `/sites/${site.id}/collections/${col}/entries`;
   // The form is autosaved in the database every few seconds, without a commit, and offered back on the next visit.
   const autosaveUrl = `/sites/${site.id}/collections/${col}/autosave?slug=${encodeURIComponent(slug ?? '')}`;
@@ -195,7 +196,11 @@ export default function Editor() {
   const back = `/sites/${site.id}/c/${col}`;
   const title = (data && collection.identifier_field && String(data[collection.identifier_field] ?? '')) || (data && typeof data.title === 'string' && data.title) || slug;
 
-  const leave = (e: { preventDefault: () => void }) => dirty && !confirm(t('Leave without saving? Your changes will be lost.')) && e.preventDefault();
+  const leave = (e: { preventDefault: () => void }) => {
+    if (!dirty) return;
+    e.preventDefault();
+    leaveDialog.current?.showModal();
+  };
 
   return (
     <form ref={form} onSubmit={save} className="flex h-screen flex-col">
@@ -271,6 +276,19 @@ export default function Editor() {
           <Notice>{error}</Notice>
         </div>
       )}
+      <dialog ref={leaveDialog} className="panel m-auto w-[calc(100%-2rem)] max-w-sm p-0 text-ink shadow-xl backdrop:bg-ink/30">
+        <div className="flex flex-col gap-4 p-6">
+          <h2>{t('Leave without saving?')}</h2>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn" autoFocus onClick={() => leaveDialog.current?.close()}>
+              {t('Cancel')}
+            </button>
+            <button type="button" className="btn btn-danger" onClick={() => navigate(back)}>
+              {t('Leave')}
+            </button>
+          </div>
+        </div>
+      </dialog>
       {autosave && !readOnly && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-2 text-[13px]">
           <span className="flex-1 text-muted">{t('Unsaved version from {date}', { date: formatDateTime(autosave.updated_at) })}</span>
