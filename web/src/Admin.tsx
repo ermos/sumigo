@@ -513,8 +513,8 @@ export function SiteMembers() {
       {right}
     </li>
   );
-  const roleSelect = (value: Role, onChange: (r: Role) => void, label: string) => (
-    <select className="field w-40 py-1" value={value} onChange={(e) => onChange(e.target.value as Role)} aria-label={label} disabled={busy}>
+  const roleSelect = (value: Role, onChange: (r: Role) => void, label: string, width = 'w-40 py-1') => (
+    <select className={`field ${width}`} value={value} onChange={(e) => onChange(e.target.value as Role)} aria-label={label} disabled={busy}>
       {(['viewer', 'editor', 'publisher'] as const).map((r) => (
         <option key={r} value={r}>
           {t(roleNames[r])}
@@ -572,21 +572,22 @@ export function SiteMembers() {
             </>
           ) : (
             <>
-              <div className="grid grid-cols-[1fr_auto] items-end gap-2">
-                <label className="label">
-                  {t('Email')}
-                  <input
-                    className="field"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => setForm({ ...form, email: e.target.value, step: 'email', note: '' })}
-                    required
-                    autoFocus
-                    autoComplete="off"
-                  />
-                </label>
-                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'))}
-              </div>
+              <label className="label">
+                {t('Email')}
+                <input
+                  className="field"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value, step: 'email', note: '' })}
+                  required
+                  autoFocus
+                  autoComplete="off"
+                />
+              </label>
+              <label className="label">
+                {t('Role')}
+                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'), 'w-full')}
+              </label>
               {form.note && <p className="text-[13px] text-muted">{form.note}</p>}
               {form.step === 'create' && (
                 <>
