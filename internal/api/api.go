@@ -33,7 +33,8 @@ type API struct {
 	// SecureCookie sets the Secure flag on the session cookie (enable behind HTTPS).
 	SecureCookie bool
 
-	configs sync.Map // site ID -> cachedConfig
+	configs   sync.Map // site ID -> cachedConfig
+	providers sync.Map // OIDC issuer -> *oidc.Provider
 }
 
 type ctxKey struct{}
@@ -45,6 +46,9 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/login", a.login)
 	mux.HandleFunc("POST /api/logout", a.logout)
+	mux.HandleFunc("GET /api/auth/config", a.authConfig)
+	mux.HandleFunc("GET /api/auth/oidc", a.oidcLogin)
+	mux.HandleFunc("GET /api/auth/oidc/callback", a.oidcCallback)
 	mux.HandleFunc("GET /api/domain", a.currentDomain)
 	mux.HandleFunc("GET /api/domains/check", a.checkDomain)
 
@@ -55,6 +59,8 @@ func (a *API) Handler() http.Handler {
 
 	admin("GET /api/settings/ai", a.getAI)
 	admin("PUT /api/settings/ai", a.saveAI)
+	admin("GET /api/settings/oidc", a.getOIDC)
+	admin("PUT /api/settings/oidc", a.saveOIDC)
 
 	admin("GET /api/users", a.listUsers)
 	admin("POST /api/users", a.saveUser)
@@ -183,16 +189,24 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	token, err := a.Store.CreateSession(u.ID, sessionTTL)
-	if err != nil {
+	if err := a.startSession(w, u); err != nil {
 		fail(w, err)
 		return
+	}
+	writeJSON(w, u)
+}
+
+// startSession logs u in on this browser.
+func (a *API) startSession(w http.ResponseWriter, u *store.User) error {
+	token, err := a.Store.CreateSession(u.ID, sessionTTL)
+	if err != nil {
+		return err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: token, Path: "/", MaxAge: int(sessionTTL.Seconds()),
 		HttpOnly: true, Secure: a.SecureCookie, SameSite: http.SameSiteStrictMode,
 	})
-	writeJSON(w, u)
+	return nil
 }
 
 func (a *API) logout(w http.ResponseWriter, r *http.Request) {
