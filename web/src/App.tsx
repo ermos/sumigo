@@ -299,14 +299,14 @@ function Home() {
 function Account() {
   const { me, setMe } = useCtx();
   const [run, pending] = useAction();
-  const [name, setName] = useState(me.name);
+  const [names, setNames] = useState({ first_name: me.first_name, last_name: me.last_name });
   const [pw, setPw] = useState({ current: '', password: '', confirm: '' });
   const [msg, setMsg] = useState<{ form: 'name' | 'password'; ok: boolean; text: string } | null>(null);
 
   const saveName = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      setMe(await api<User>('PUT', '/me', { name }));
+      setMe(await api<User>('PUT', '/me', names));
       setMsg({ form: 'name', ok: true, text: t('Saved') });
     } catch (err) {
       setMsg({ form: 'name', ok: false, text: (err as Error).message });
@@ -329,16 +329,22 @@ function Account() {
     <div className="mx-auto flex max-w-xl flex-col gap-6">
       <h1>{t('My account')}</h1>
       <form className="panel flex flex-col gap-4 p-6" onSubmit={(e) => run('name', () => saveName(e))}>
-        <label className="label">
-          {t('First and last name')}
-          <input className="field" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" />
-        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="label">
+            {t('First name')}
+            <input className="field" value={names.first_name} onChange={(e) => setNames({ ...names, first_name: e.target.value })} required autoComplete="given-name" />
+          </label>
+          <label className="label">
+            {t('Last name')}
+            <input className="field" value={names.last_name} onChange={(e) => setNames({ ...names, last_name: e.target.value })} autoComplete="family-name" />
+          </label>
+        </div>
         <label className="label">
           {t('Email')}
           <input className="field" value={me.email} disabled />
         </label>
         {notice('name')}
-        <button className="btn btn-primary self-end" disabled={!!pending || name.trim() === me.name}>
+        <button className="btn btn-primary self-end" disabled={!!pending || (names.first_name.trim() === me.first_name && names.last_name.trim() === me.last_name)}>
           <Pending on={pending === 'name'}>{t('Save changes')}</Pending>
         </button>
       </form>

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -35,9 +36,12 @@ var roleRank = map[string]int{RoleViewer: 1, RoleEditor: 2, RolePublisher: 3}
 func RoleAtLeast(role, min string) bool { return roleRank[role] >= roleRank[min] }
 
 type User struct {
-	ID           int64  `json:"id"`
-	Email        string `json:"email"`
+	ID    int64  `json:"id"`
+	Email string `json:"email"`
+	// Name is "FirstName LastName", kept for display and to sign commits.
 	Name         string `json:"name"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
 	IsAdmin      bool   `json:"is_admin"`
 	PasswordHash string `json:"-"`
 	// MustChangePassword is set with a temporary password: nothing but choosing a new one is allowed.
@@ -102,13 +106,24 @@ func (s *Store) CountUsers() (n int, err error) {
 	return
 }
 
+// normalizeNames derives Name from the first and last names, or splits Name when only it is set.
+func (u *User) normalizeNames() {
+	u.FirstName, u.LastName = strings.TrimSpace(u.FirstName), strings.TrimSpace(u.LastName)
+	if u.FirstName == "" && u.LastName == "" {
+		u.FirstName, u.LastName, _ = strings.Cut(strings.TrimSpace(u.Name), " ")
+		u.LastName = strings.TrimSpace(u.LastName)
+	}
+	u.Name = strings.TrimSpace(u.FirstName + " " + u.LastName)
+}
+
 func (s *Store) CreateUser(u *User, password string) error {
+	u.normalizeNames()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`INSERT INTO users (email, name, password_hash, is_admin, must_change_password) VALUES (?, ?, ?, ?, ?)`,
-		u.Email, u.Name, string(hash), u.IsAdmin, u.MustChangePassword)
+	res, err := s.db.Exec(`INSERT INTO users (email, name, first_name, last_name, password_hash, is_admin, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		u.Email, u.Name, u.FirstName, u.LastName, string(hash), u.IsAdmin, u.MustChangePassword)
 	if err != nil {
 		return err
 	}
@@ -118,8 +133,9 @@ func (s *Store) CreateUser(u *User, password string) error {
 
 // UpdateUser updates profile fields, and the password when non-empty (with MustChangePassword).
 func (s *Store) UpdateUser(u *User, password string) error {
-	if _, err := s.db.Exec(`UPDATE users SET email = ?, name = ?, is_admin = ? WHERE id = ?`,
-		u.Email, u.Name, u.IsAdmin, u.ID); err != nil {
+	u.normalizeNames()
+	if _, err := s.db.Exec(`UPDATE users SET email = ?, name = ?, first_name = ?, last_name = ?, is_admin = ? WHERE id = ?`,
+		u.Email, u.Name, u.FirstName, u.LastName, u.IsAdmin, u.ID); err != nil {
 		return err
 	}
 	if password == "" {
@@ -139,7 +155,7 @@ func (s *Store) DeleteUser(id int64) error {
 }
 
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query(`SELECT id, email, name, is_admin, password_hash, must_change_password FROM users ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, email, name, first_name, last_name, is_admin, password_hash, must_change_password FROM users ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +163,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	users := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.FirstName, &u.LastName, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -157,8 +173,8 @@ func (s *Store) ListUsers() ([]User, error) {
 
 func (s *Store) userWhere(where string, arg any) (*User, error) {
 	var u User
-	err := s.db.QueryRow(`SELECT id, email, name, is_admin, password_hash, must_change_password FROM users WHERE `+where, arg).
-		Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword)
+	err := s.db.QueryRow(`SELECT id, email, name, first_name, last_name, is_admin, password_hash, must_change_password FROM users WHERE `+where, arg).
+		Scan(&u.ID, &u.Email, &u.Name, &u.FirstName, &u.LastName, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

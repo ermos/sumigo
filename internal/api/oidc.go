@@ -176,13 +176,15 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		Email         string   `json:"email"`
 		EmailVerified *bool    `json:"email_verified"`
 		Name          string   `json:"name"`
+		GivenName     string   `json:"given_name"`
+		FamilyName    string   `json:"family_name"`
 		Groups        []string `json:"groups"`
 	}
 	if err := idt.Claims(&claims); err != nil || claims.Email == "" || (claims.EmailVerified != nil && !*claims.EmailVerified) {
 		loginError(w, r, "oidc_email")
 		return
 	}
-	u, err := a.oidcUser(o, claims.Email, claims.Name, claims.Groups)
+	u, err := a.oidcUser(o, claims.Email, store.User{Name: claims.Name, FirstName: claims.GivenName, LastName: claims.FamilyName}, claims.Groups)
 	if errors.Is(err, store.ErrNotFound) {
 		loginError(w, r, "oidc_unknown_user")
 		return
@@ -199,13 +201,14 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 // oidcUser finds the Sumigo user of an email, creates it when allowed, and syncs admin rights with the admin group.
-func (a *API) oidcUser(o store.OIDCSettings, email, name string, groups []string) (*store.User, error) {
+// names holds the name claims: given and family names, or the full name only.
+func (a *API) oidcUser(o store.OIDCSettings, email string, names store.User, groups []string) (*store.User, error) {
 	u, err := a.Store.UserByEmail(email)
 	if errors.Is(err, store.ErrNotFound) && o.AutoCreate {
-		if name == "" {
-			name = email
+		u = &store.User{Email: email, Name: names.Name, FirstName: names.FirstName, LastName: names.LastName}
+		if u.Name == "" && u.FirstName == "" {
+			u.Name, _, _ = strings.Cut(email, "@")
 		}
-		u = &store.User{Email: email, Name: name}
 		// The password is random and never shown: this user logs in with the provider.
 		err = a.Store.CreateUser(u, randomString())
 	}

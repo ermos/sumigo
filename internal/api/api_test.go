@@ -553,7 +553,7 @@ func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 		return ""
 	}
 
-	_, body := call(adminToken, http.MethodPost, "/api/users", `{"email":"jane@acme.io","name":"Jane","temporary":true}`)
+	_, body := call(adminToken, http.MethodPost, "/api/users", `{"email":"jane@acme.io","first_name":"Jane","temporary":true}`)
 	var created struct {
 		TemporaryPassword string `json:"temporary_password"`
 	}
@@ -605,14 +605,14 @@ func TestUsersRenameThemselvesButKeepTheirRole(t *testing.T) {
 		}
 		return res.StatusCode
 	}
-	if code := put(`{"name":"  "}`); code != http.StatusBadRequest {
+	if code := put(`{"first_name":"  ","last_name":"Doe"}`); code != http.StatusBadRequest {
 		t.Fatalf("empty name accepted: %d", code)
 	}
-	if code := put(`{"name":" Jane Doe ","is_admin":true,"email":"x@evil.io"}`); code != http.StatusOK {
+	if code := put(`{"first_name":" Jane ","last_name":"de La Tour","is_admin":true,"email":"x@evil.io"}`); code != http.StatusOK {
 		t.Fatalf("rename: %d", code)
 	}
 	u, _ := st.UserByID(jane.ID)
-	if u.Name != "Jane Doe" || u.IsAdmin || u.Email != "jane@acme.io" {
+	if u.FirstName != "Jane" || u.LastName != "de La Tour" || u.Name != "Jane de La Tour" || u.IsAdmin || u.Email != "jane@acme.io" {
 		t.Fatalf("user = %+v", u)
 	}
 }
