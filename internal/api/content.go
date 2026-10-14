@@ -349,9 +349,15 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"slug": slug, "draft": pr})
 }
 
+// deleteEntry deletes an entry and its draft. With ?only=draft, it drops the draft and keeps the published version.
 func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
-	sc, col, ok := a.collection(w, r, store.RolePublisher)
+	sc, col, ok := a.collection(w, r, store.RoleEditor)
 	if !ok {
+		return
+	}
+	onlyDraft := r.URL.Query().Get("only") == "draft"
+	if !onlyDraft && !sc.canPublish() {
+		httpError(w, http.StatusForbidden, "publisher_only_delete", "only publishers can delete entries on this site")
 		return
 	}
 	slug := r.PathValue("slug")
@@ -372,6 +378,10 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 			fail(w, err)
 			return
 		}
+	}
+	if onlyDraft {
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
 	file := entryPath(col, slug)
 	_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
