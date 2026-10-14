@@ -616,3 +616,45 @@ func TestUsersRenameThemselvesButKeepTheirRole(t *testing.T) {
 		t.Fatalf("user = %+v", u)
 	}
 }
+
+func TestSetupCodeCreatesTheAdminOnce(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	if err := a.PrepareSetup(); err != nil || a.setupCode == "" {
+		t.Fatalf("no setup code: %v", err)
+	}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	setup := func(code string) *http.Response {
+		body := `{"code":"` + code + `","first_name":"Kilian","last_name":"Smiti","email":"k@acme.io","password":"password123"}`
+		res, err := http.Post(srv.URL+"/api/setup", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	code := a.setupCode
+
+	if res := setup("wrong"); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("wrong code: %d", res.StatusCode)
+	}
+	res := setup(" " + code + " ")
+	if res.StatusCode != http.StatusOK || len(res.Cookies()) == 0 {
+		t.Fatalf("setup: %d", res.StatusCode)
+	}
+	u, err := st.UserByEmail("k@acme.io")
+	if err != nil || !u.IsAdmin || u.Name != "Kilian Smiti" {
+		t.Fatalf("admin = %+v, %v", u, err)
+	}
+	if res := setup(code); res.StatusCode != http.StatusConflict {
+		t.Fatalf("second setup: %d", res.StatusCode)
+	}
+	status, _ := http.Get(srv.URL + "/api/setup")
+	if b, _ := io.ReadAll(status.Body); !strings.Contains(string(b), `"needed":false`) {
+		t.Fatalf("status: %s", b)
+	}
+	// With users, a restart prints no code.
+	b := &API{Store: st}
+	if err := b.PrepareSetup(); err != nil || b.setupCode != "" {
+		t.Fatalf("setup code with users: %q %v", b.setupCode, err)
+	}
+}
