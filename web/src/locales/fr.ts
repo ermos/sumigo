@@ -58,8 +58,6 @@ export const fr = {
   Collections: 'Collections',
   Members: 'Membres',
   Settings: 'Paramètres',
-  'Only publishers can publish.': 'Seuls les éditeurs peuvent publier.',
-  'Editors can publish.': 'Les rédacteurs peuvent publier.',
   'sumigo.yml declares no folder collection.': 'sumigo.yml ne déclare aucune collection de type dossier.',
   Search: 'Rechercher',
   'No entry matches this search.': 'Aucune entrée ne correspond à cette recherche.',

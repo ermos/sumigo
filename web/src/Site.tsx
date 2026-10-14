@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useMatch, useNavigate, useOutletContext, useParams } from 'react-router-dom';
-import { api, can, EntrySummary, forgeNames, treeURL, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, EntrySummary, forgeNames, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { Ctx, useCtx } from './App';
 
 import { useCached } from './cache';
@@ -146,13 +146,6 @@ export function ContentLayout() {
             </>
           )}
         </nav>
-        <p className="mt-6 hidden px-2.5 text-xs leading-5 text-muted md:block">
-          <a href={treeURL(site)} target="_blank" rel="noreferrer" className="font-mono hover:text-accent">
-            {site.repo}@{site.branch}
-          </a>
-          <br />
-          {t(site.workflow === 'pr' ? 'Only publishers can publish.' : 'Editors can publish.')}
-        </p>
       </aside>
       <div className="min-w-0 flex-1">
         <Outlet context={ctx} />
