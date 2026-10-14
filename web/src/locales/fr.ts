@@ -215,12 +215,9 @@ export const fr = {
   '(manages users and sites, sees every site)': '(gère les utilisateurs et les sites, voit tous les sites)',
   'Save user': "Enregistrer l'utilisateur",
   'Members saved': 'Membres enregistrés',
-  'Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.':
-    'Choisissez qui peut ouvrir ce site. Les lecteurs lisent. Les rédacteurs enregistrent des brouillons, et publient aussi sauf si le site exige une relecture. Les éditeurs publient aussi les brouillons et suppriment. Les administrateurs voient tous les sites.',
   'Role of {name}': 'Rôle de {name}',
   'No access': 'Aucun accès',
-  'No user to add yet. {link} first.': "Aucun utilisateur à ajouter. {link} d'abord.",
-  'Create a user': 'Créez un utilisateur',
+  'Create a user': 'Créer un utilisateur',
   'Save members': 'Enregistrer les membres',
 
   // Editor

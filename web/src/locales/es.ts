@@ -217,12 +217,9 @@ export const es: Record<keyof typeof fr, string> = {
   '(manages users and sites, sees every site)': '(gestiona usuarios y sitios, ve todos los sitios)',
   'Save user': 'Guardar usuario',
   'Members saved': 'Miembros guardados',
-  'Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.':
-    'Elige quién puede abrir este sitio. Los lectores leen. Los redactores guardan borradores, y también publican salvo que el sitio requiera revisión. Los editores además publican borradores y eliminan. Los administradores ven todos los sitios.',
   'Role of {name}': 'Rol de {name}',
   'No access': 'Sin acceso',
-  'No user to add yet. {link} first.': 'Todavía no hay usuarios que añadir. {link} primero.',
-  'Create a user': 'Crea un usuario',
+  'Create a user': 'Crear un usuario',
   'Save members': 'Guardar miembros',
 
   // Editor

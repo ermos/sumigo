@@ -470,14 +470,14 @@ export function SiteMembers() {
   };
   // Admins are listed too: they open every site, so their role here is fixed.
   const members = [...users].sort((a, b) => Number(b.is_admin) - Number(a.is_admin));
-  const noUser = t('No user to add yet. {link} first.').split('{link}');
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title={t('Members')} />
-      <p className="mb-5 -mt-2 text-[13px] text-muted">
-        {t('Choose who can open this site. Viewers read. Editors save drafts, and publish too unless the site requires review. Publishers also publish drafts and delete. Admins see every site.')}
-      </p>
+      <PageHeader title={t('Members')}>
+        <Link to="/admin/users" className="btn">
+          {t('Create a user')}
+        </Link>
+      </PageHeader>
       <div className="panel">
         <ul className="divide-y divide-line">
           {members.map((u) => (
@@ -503,23 +503,17 @@ export function SiteMembers() {
               )}
             </li>
           ))}
-          {!members.some((u) => !u.is_admin) && (
-            <li className="px-5 py-6 text-center text-[13px] text-muted">
-              {noUser[0]}
-              <Link to="/admin/users" className="text-accent hover:underline">
-                {t('Create a user')}
-              </Link>
-              {noUser[1]}
-            </li>
-          )}
         </ul>
-        <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
-          {error && <span className="text-[13px] text-danger">{error}</span>}
-          {status && <span className="text-[13px] text-ok">{status}</span>}
-          <button className="btn btn-primary" onClick={() => run('save', save)} disabled={!!pending}>
-            <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save members')}</Pending>
-          </button>
-        </div>
+        {/* Only roles of non-admin users can change. */}
+        {members.some((u) => !u.is_admin) && (
+          <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas/60 px-5 py-3">
+            {error && <span className="text-[13px] text-danger">{error}</span>}
+            {status && <span className="text-[13px] text-ok">{status}</span>}
+            <button className="btn btn-primary" onClick={() => run('save', save)} disabled={!!pending}>
+              <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save members')}</Pending>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
