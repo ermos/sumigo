@@ -230,8 +230,20 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
   );
 }
 
+// domainSite is the site a custom domain opens, fetched once: null on the instance domain.
+const domainSite = api<{ site_id: number }>('GET', '/domain').then(
+  (d) => d.site_id,
+  () => null,
+);
+
 function Home() {
   const { me, sites } = useCtx();
+  const [siteId, setSiteId] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    domainSite.then(setSiteId);
+  }, []);
+  if (siteId === undefined) return null;
+  if (sites.some((s) => s.id === siteId)) return <Navigate to={`/sites/${siteId}`} replace />;
   return (
     <div className="mx-auto max-w-2xl">
       <h1>{t('Hello {name}', { name: me.name })}</h1>

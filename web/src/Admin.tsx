@@ -49,11 +49,21 @@ export function SiteForm() {
   const [site, setSite] = useState<Site>(emptySite);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
+  // Custom domains, one per line.
+  const [domains, setDomains] = useState('');
 
   useEffect(() => {
     const s = sites.find((s) => String(s.id) === siteId);
     setSite(s ? { ...s, forge_url: s.forge_url || defaultURLs[s.forge], token: '' } : emptySite);
   }, [siteId, sites]);
+
+  useEffect(() => {
+    setDomains('');
+    if (siteId)
+      api<string[]>('GET', `/sites/${siteId}/domains`)
+        .then((d) => setDomains(d.join('\n')))
+        .catch(() => {});
+  }, [siteId]);
 
   const set = (k: keyof Site) => (e: { target: { value: string } }) => setSite({ ...site, [k]: e.target.value });
 
@@ -61,7 +71,8 @@ export function SiteForm() {
     e.preventDefault();
     setError('');
     try {
-      const saved = await api<Site>(site.id ? 'PUT' : 'POST', site.id ? `/sites/${site.id}` : '/sites', site);
+      const saved = await api<Site>(site.id ? 'PUT' : 'POST', site.id ? `/sites/${site.id}` : '/sites', { ...site, domains: domains.split('\n') });
+      setDomains((await api<string[]>('GET', `/sites/${saved.id}/domains`)).join('\n'));
       reloadSites();
       setStatus(t('Saved'));
       if (!site.id) navigate(`/admin/sites/${saved.id}`);
@@ -199,6 +210,11 @@ export function SiteForm() {
               <option value="direct">{t('Open: editors can publish, or save drafts')}</option>
               <option value="pr">{t('Review: editors save drafts, only publishers publish them')}</option>
             </select>
+          </label>
+          <label className="label">
+            {t('Domains')}
+            <textarea className="field min-h-20 font-mono" value={domains} onChange={(e) => setDomains(e.target.value)} placeholder="cms.client.com" spellCheck={false} />
+            <span className="text-xs font-normal text-muted">{t('CNAME to {host}, one domain per line.', { host: location.hostname })}</span>
           </label>
           <label className="flex items-start gap-2 text-[13px] font-medium">
             <input className="mt-0.5 size-4 accent-accent" type="checkbox" checked={site.ai_enabled} onChange={(e) => setSite({ ...site, ai_enabled: e.target.checked })} />

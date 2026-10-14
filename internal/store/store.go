@@ -357,6 +357,53 @@ func (s *Store) SetAccess(siteID int64, list []Access) error {
 	return tx.Commit()
 }
 
+// --- custom domains
+
+func (s *Store) Domains(siteID int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT host FROM domains WHERE site_id = ? ORDER BY host`, siteID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	hosts := []string{}
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, h)
+	}
+	return hosts, rows.Err()
+}
+
+// SetDomains replaces the domains of a site.
+func (s *Store) SetDomains(siteID int64, hosts []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DELETE FROM domains WHERE site_id = ?`, siteID); err != nil {
+		return err
+	}
+	for _, h := range hosts {
+		if _, err := tx.Exec(`INSERT INTO domains (host, site_id) VALUES (?, ?)`, h, siteID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// DomainSite returns the site a domain opens, ErrNotFound for an unknown domain.
+func (s *Store) DomainSite(host string) (int64, error) {
+	var id int64
+	err := s.db.QueryRow(`SELECT site_id FROM domains WHERE host = ?`, host).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	return id, err
+}
+
 // --- scheduled publishing
 
 type Schedule struct {

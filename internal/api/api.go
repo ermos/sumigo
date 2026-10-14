@@ -45,6 +45,8 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/login", a.login)
 	mux.HandleFunc("POST /api/logout", a.logout)
+	mux.HandleFunc("GET /api/domain", a.currentDomain)
+	mux.HandleFunc("GET /api/domains/check", a.checkDomain)
 
 	auth := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireUser(h, false)) }
 	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireUser(h, true)) }
@@ -67,6 +69,7 @@ func (a *API) Handler() http.Handler {
 	admin("GET /api/sites/{site}/access", a.getAccess)
 	admin("PUT /api/sites/{site}/access", a.setAccess)
 	admin("POST /api/sites/{site}/check", a.checkSite)
+	admin("GET /api/sites/{site}/domains", a.getDomains)
 
 	auth("GET /api/sites/{site}/collections/{col}/entries", a.listEntries)
 	auth("POST /api/sites/{site}/collections/{col}/entries", a.saveEntry)
@@ -87,7 +90,7 @@ func (a *API) Handler() http.Handler {
 	auth("POST /api/sites/{site}/pulls/{number}/merge", a.mergePull)
 	auth("PUT /api/sites/{site}/pulls/{number}/schedule", a.schedulePull)
 	auth("DELETE /api/sites/{site}/pulls/{number}/schedule", a.unschedulePull)
-	return mux
+	return a.cors(mux)
 }
 
 func (a *API) requireUser(next http.HandlerFunc, adminOnly bool) http.Handler {
@@ -304,10 +307,15 @@ func (a *API) getSite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) saveSite(w http.ResponseWriter, r *http.Request) {
-	var st store.Site
-	if !readJSON(w, r, &st) {
+	var in struct {
+		store.Site
+		// Domains replaces the custom domains of the site; left as is when absent.
+		Domains *[]string `json:"domains"`
+	}
+	if !readJSON(w, r, &in) {
 		return
 	}
+	st := in.Site
 	st.ID = pathID(r, "site")
 	st.Repo = strings.Trim(st.Repo, "/")
 	// GitLab nests projects in subgroups: group/subgroup/name.
@@ -331,9 +339,23 @@ func (a *API) saveSite(w http.ResponseWriter, r *http.Request) {
 	if st.Workflow != "pr" {
 		st.Workflow = "direct"
 	}
+	// Domains are checked before anything is saved, so a rejected domain never leaves a half-created site.
+	var domains []string
+	if in.Domains != nil {
+		var ok bool
+		if domains, ok = a.parseDomains(w, *in.Domains, st.ID); !ok {
+			return
+		}
+	}
 	if err := a.Store.SaveSite(&st); err != nil {
 		fail(w, err)
 		return
+	}
+	if in.Domains != nil {
+		if err := a.Store.SetDomains(st.ID, domains); err != nil {
+			fail(w, err)
+			return
+		}
 	}
 	a.configs.Delete(st.ID)
 	st.Role = store.RolePublisher
