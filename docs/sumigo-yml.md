@@ -73,6 +73,7 @@ A collection is a folder of Markdown files that all share the same fields.
 | `extension` | no | `md` | File extension of entries. |
 | `slug` | no | `{{slug}}` | Template of the file name for new entries, see [Slugs](#slugs). |
 | `identifier_field` | no | `title` | Field used as the entry title in lists and as `{{slug}}`. |
+| `seo` | no | | Turns on the SEO panel of the editor, see [SEO](#seo). |
 | `create` | no | `true` | `false` prevents creating new entries. Existing ones can still be edited. |
 | `fields` | yes | none | List of fields, see [Fields](#fields). |
 
@@ -95,6 +96,30 @@ Slugify means: lowercase, accents removed, everything else that is not a letter 
 `slug: "{{year}}-{{month}}-{{day}}-{{slug}}"` with the title `Hello World` gives `2026-03-07-hello-world.md`.
 
 Creating an entry whose slug already exists (published or as an open draft) is refused.
+
+### SEO
+
+A collection with a `seo` block gets an **SEO** tab in the editor, next to Preview and History. It scores the entry as it is typed and shows how it looks in Google. The block names the fields playing each role; the `body` is always analyzed.
+
+```yaml
+collections:
+  - name: blog
+    folder: src/content/blog
+    seo:
+      title: title             # meta title, defaults to identifier_field
+      description: description
+      keywords: keywords       # list or comma separated string, the first one is the focus keyword
+      image: cover             # share image
+      slug: true               # check the focus keyword in the URL
+    fields:
+      - { name: title, widget: string }
+      - { name: description, widget: text }
+      - { name: keywords, widget: list }
+      - { name: cover, widget: image, required: false }
+      - { name: body, widget: markdown }
+```
+
+Every key is optional, and a named field must exist in `fields`. The checks: title length (30 to 60) and description length (120 to 160), focus keyword in the title, description, URL and first 100 words, its density in the content (0.5 to 2.5%), content length (600 words or more), H2/H3 subheadings, no H1 in the content, images with an alternative text, links, and a share image. Keywords match whole words, ignoring case and accents.
 
 ## Fields
 
