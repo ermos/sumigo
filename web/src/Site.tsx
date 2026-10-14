@@ -127,7 +127,8 @@ export function ContentLayout() {
     <div className="flex flex-col gap-8 md:flex-row">
       <aside className="shrink-0 md:w-52">
         <nav className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1 text-xs font-medium text-muted">{t('Collections')}</p>
+          {/* Same size and row height (38px, like the search field) as the collection title, so both line up. */}
+          <p className="mb-5 flex h-[38px] items-center px-2.5 text-2xl font-semibold tracking-tight">{t('Collections')}</p>
           {site.config?.collections.map((c) => (
             <NavLink key={c.name} to={`/sites/${site.id}/c/${c.name}`} className={sideLink}>
               {c.label || c.name}
@@ -194,11 +195,7 @@ export function CollectionView() {
   const { col } = useParams();
   const [filter, setFilter] = useState('');
   const collection = site.config?.collections.find((c) => c.name === col);
-  const {
-    data: entries,
-    error,
-    refreshing,
-  } = useCached(entriesKey(site.id, col), () =>
+  const { data: entries, error } = useCached(entriesKey(site.id, col), () =>
     api<EntrySummary[]>('GET', `/sites/${site.id}/collections/${col}/entries`).then((e) => e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug)))),
   );
 
@@ -208,11 +205,7 @@ export function CollectionView() {
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <h1 className="mr-auto">
-          {collection.label || collection.name}
-          {entries && <span className="ml-2 text-base font-normal text-muted">{entries.length}</span>}
-          {entries && refreshing && <span className="ml-3 text-xs font-normal text-muted">{t('Syncing with {forge}…', { forge: forgeNames[site.forge] })}</span>}
-        </h1>
+        <h1 className="mr-auto">{collection.label || collection.name}</h1>
         <input className="field w-56" type="search" placeholder={t('Search')} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {can(site.role, 'editor') && collection.create !== false && (
           <Link className="btn btn-primary" to={`/sites/${site.id}/c/${col}/new`}>
@@ -221,7 +214,7 @@ export function CollectionView() {
         )}
       </div>
       {error && <Notice>{error}</Notice>}
-      {!entries && !error && <Loading>{t('Loading entries from {forge}…', { forge: forgeNames[site.forge] })}</Loading>}
+      {!entries && !error && <EntriesPlaceholder />}
       {shown && shown.length > 0 && (
         <ul className="panel divide-y divide-line">
           {shown.map((e) => (
@@ -239,6 +232,21 @@ export function CollectionView() {
     </>
   );
 }
+
+// EntriesPlaceholder mimics the entry list while it loads: same rows, grey bars instead of text.
+const placeholderWidths = ['w-3/5', 'w-2/5', 'w-1/2', 'w-2/3', 'w-1/3', 'w-1/2'];
+const EntriesPlaceholder = () => (
+  <ul className="panel divide-y divide-line" aria-busy="true" aria-label={t('Loading…')}>
+    {placeholderWidths.map((w, i) => (
+      <li key={i} className="flex h-[52px] items-center gap-3 px-5 motion-safe:animate-pulse">
+        <span className="flex-1">
+          <span className={`block h-3.5 rounded bg-line ${w}`} />
+        </span>
+        <span className="h-3 w-20 rounded bg-line" />
+      </li>
+    ))}
+  </ul>
+);
 
 export function PullsView() {
   const site = useSite();

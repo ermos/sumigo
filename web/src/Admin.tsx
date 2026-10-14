@@ -687,7 +687,7 @@ export function AdminLayout() {
     <div className="flex flex-col gap-8 md:flex-row">
       <aside className="shrink-0 md:w-52">
         <nav className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1 text-xs font-medium text-muted">{t('Administration')}</p>
+          <p className="mb-6 px-2.5 text-2xl font-semibold tracking-tight">{t('Administration')}</p>
           <NavLink to="/admin/users" className={adminLink}>
             {t('Users')}
           </NavLink>

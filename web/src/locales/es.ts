@@ -64,9 +64,7 @@ export const es: Record<keyof typeof fr, string> = {
   'Only publishers can publish.': 'Solo los editores pueden publicar.',
   'Editors can publish.': 'Los redactores pueden publicar.',
   'sumigo.yml declares no folder collection.': 'sumigo.yml no declara ninguna colección de carpeta.',
-  'Syncing with {forge}…': 'Sincronizando con {forge}…',
   Search: 'Buscar',
-  'Loading entries from {forge}…': 'Cargando entradas desde {forge}…',
   'No entry matches this search.': 'Ninguna entrada coincide con esta búsqueda.',
   'No entries yet.': 'Todavía no hay entradas.',
 
