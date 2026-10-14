@@ -368,7 +368,41 @@ export default function Editor() {
   );
 }
 
-const statusColors: Record<Status, string> = { good: 'bg-ok', warn: 'bg-amber-500', bad: 'bg-danger' };
+// Look of each check status: colors of the icon badge and the score ring, and the icon path.
+const statusLook: Record<Status, { badge: string; ring: string; icon: string }> = {
+  good: { badge: 'bg-ok/12 text-ok', ring: 'text-ok', icon: 'm5 12.5 4.5 4.5L19 7.5' },
+  warn: { badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-400', ring: 'text-amber-500', icon: 'M12 7v6m0 4h.01' },
+  bad: { badge: 'bg-danger/12 text-danger', ring: 'text-danger', icon: 'm7 7 10 10M17 7 7 17' },
+};
+
+const StatusIcon = ({ status }: { status: Status }) => (
+  <span className={`grid size-5 shrink-0 place-items-center rounded-full ${statusLook[status].badge}`}>
+    <svg viewBox="0 0 24 24" className="size-3" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d={statusLook[status].icon} />
+    </svg>
+  </span>
+);
+
+// ScoreRing draws the score as a gauge: the colored arc is the share of the 100 points.
+const ScoreRing = ({ score, status }: { score: number; status: Status }) => (
+  <div className="relative size-20 shrink-0">
+    <svg viewBox="0 0 36 36" className="size-20 -rotate-90" aria-hidden>
+      <circle cx="18" cy="18" r="15.9" fill="none" className="stroke-line" strokeWidth="3" />
+      <circle
+        cx="18"
+        cy="18"
+        r="15.9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeDasharray={`${score} 100`}
+        className={`${statusLook[status].ring} transition-[stroke-dasharray] duration-500`}
+      />
+    </svg>
+    <span className="absolute inset-0 grid place-items-center text-xl font-semibold tabular-nums">{score}</span>
+  </div>
+);
 
 // SEOPanel scores the entry as it is typed, from the fields its collection names in sumigo.yml, and shows its Google result.
 function SEOPanel({
@@ -390,36 +424,65 @@ function SEOPanel({
   const title = str(seo.title || titleField);
   const description = seo.description ? str(seo.description) : undefined;
   const entrySlug = slug ?? slugify(title);
-  const r = analyze({
-    title,
-    description,
-    keywords: keywordsOf(seo.keywords ? data[seo.keywords] : undefined),
-    slug: seo.slug ? entrySlug : undefined,
-    body: str('body'),
-    image: seo.image ? str(seo.image) : null,
-  });
-  const tone = r.score >= 80 ? 'text-ok' : r.score >= 50 ? 'text-amber-600' : 'text-danger';
+  const keywords = keywordsOf(seo.keywords ? data[seo.keywords] : undefined);
+  const r = analyze({ title, description, keywords, slug: seo.slug ? entrySlug : undefined, body: str('body'), image: seo.image ? str(seo.image) : null });
+  const overall: Status = r.score >= 80 ? 'good' : r.score >= 50 ? 'warn' : 'bad';
+  const groups = (['bad', 'warn', 'good'] as const).map((status) => ({ status, checks: r.checks.filter((c) => c.status === status) })).filter((g) => g.checks.length);
+  const groupTitle = { bad: 'Problems', warn: 'To improve', good: 'Passed' } as const;
+
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <div className="flex items-center gap-3">
-        <span className={`text-3xl font-semibold tabular-nums ${tone}`}>{r.score}</span>
-        <span className="text-[13px] text-muted">{t('SEO score out of 100, {n} words', { n: r.words })}</span>
-      </div>
-      <div className="rounded-md border border-line p-4">
-        <p className="truncate text-xs text-muted">
-          {site.name} › {collection} › {entrySlug}
-        </p>
-        <p className="mt-0.5 line-clamp-1 text-lg text-[#1a0dab] dark:text-[#8ab4f8]">{title || t('Title')}</p>
-        <p className="line-clamp-2 text-[13px] text-muted">{description || t('No description: Google picks a sentence of the content.')}</p>
-      </div>
-      <ul className="flex flex-col gap-2">
-        {r.checks.map((c) => (
-          <li key={c.message} className="flex items-start gap-2.5 text-[13px]">
-            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${statusColors[c.status]}`} aria-label={c.status} />
-            {t(c.message as Parameters<typeof t>[0], c.vars)}
-          </li>
+    <div className="flex flex-col gap-5 p-6">
+      <section className="flex items-center gap-5 rounded-lg border border-line p-5">
+        <ScoreRing score={r.score} status={overall} />
+        <div className="flex min-w-0 flex-col gap-2">
+          <p className="text-[15px] font-semibold">{t(({ good: 'Good SEO', warn: 'SEO to improve', bad: 'Weak SEO' } as const)[overall])}</p>
+          {keywords[0] ? (
+            <span className="pill max-w-full self-start truncate bg-accent-soft text-accent" title={t('Focus keyword')}>
+              {keywords[0]}
+            </span>
+          ) : (
+            <span className="text-[13px] text-muted">{t('No focus keyword')}</span>
+          )}
+          <p className="flex flex-wrap gap-x-3 text-xs text-muted tabular-nums">
+            <span>{t('{n} words', { n: r.words })}</span>
+            {keywords[0] && <span>{t('Density {d}%', { d: Math.round(r.density * 10) / 10 })}</span>}
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-medium text-muted">{t('Google preview')}</h3>
+        <div className="rounded-lg border border-line p-4">
+          <p className="truncate text-xs text-muted">
+            {site.name} › {collection} › {entrySlug}
+          </p>
+          <p className="mt-0.5 line-clamp-1 text-lg text-[#1a0dab] dark:text-[#8ab4f8]">{title || t('Title')}</p>
+          <p className="line-clamp-2 text-[13px] text-muted">{description || t('No description: Google picks a sentence of the content.')}</p>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-line">
+        {groups.map((g) => (
+          // Passed checks start folded: what needs work comes first.
+          <details key={g.status} open={g.status !== 'good'} className="group border-b border-line last:border-b-0">
+            <summary className="flex cursor-pointer list-none items-center gap-2.5 bg-canvas/60 px-4 py-2.5 text-[13px] font-medium">
+              <StatusIcon status={g.status} />
+              {t(groupTitle[g.status])}
+              <span className="text-muted tabular-nums">{g.checks.length}</span>
+              <span className="ml-auto transition-transform group-open:rotate-180">
+                <Chevron dir="down" />
+              </span>
+            </summary>
+            <ul className="divide-y divide-line">
+              {g.checks.map((c) => (
+                <li key={c.message} className="px-4 py-2.5 pl-11 text-[13px] leading-5">
+                  {t(c.message as Parameters<typeof t>[0], c.vars)}
+                </li>
+              ))}
+            </ul>
+          </details>
         ))}
-      </ul>
+      </section>
     </div>
   );
 }
