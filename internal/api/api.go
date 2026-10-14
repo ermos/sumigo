@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"log"
@@ -56,6 +57,7 @@ func (a *API) Handler() http.Handler {
 	admin := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, a.requireUser(h, true)) }
 
 	auth("GET /api/me", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, userFrom(r)) })
+	auth("POST /api/me/password", a.changePassword)
 
 	admin("GET /api/settings/ai", a.getAI)
 	admin("PUT /api/settings/ai", a.saveAI)
@@ -111,6 +113,11 @@ func (a *API) requireUser(next http.HandlerFunc, adminOnly bool) http.Handler {
 		u, err := a.Store.UserBySession(c.Value)
 		if err != nil {
 			httpError(w, http.StatusUnauthorized, "not_logged_in", "not logged in")
+			return
+		}
+		// A temporary password only opens the page to choose a new one.
+		if u.MustChangePassword && r.Pattern != "GET /api/me" && r.Pattern != "POST /api/me/password" {
+			httpError(w, http.StatusForbidden, "password_change_required", "choose a new password first")
 			return
 		}
 		if adminOnly && !u.IsAdmin {
@@ -234,12 +241,18 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		store.User
 		Password string `json:"password"`
+		// Temporary generates a one-time password, shown once to the admin; the user replaces it at login.
+		Temporary bool `json:"temporary"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
 	u := in.User
 	u.ID = pathID(r, "id")
+	u.MustChangePassword = in.Temporary
+	if in.Temporary {
+		in.Password = temporaryPassword()
+	}
 	u.Email = strings.TrimSpace(u.Email)
 	if u.Email == "" || u.Name == "" {
 		httpError(w, http.StatusBadRequest, "email_name_required", "email and name are required")
@@ -268,6 +281,50 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusConflict, "email_used", "email already used")
 			return
 		}
+		fail(w, err)
+		return
+	}
+	if !in.Temporary {
+		writeJSON(w, u)
+		return
+	}
+	writeJSON(w, struct {
+		store.User
+		TemporaryPassword string `json:"temporary_password"`
+	}{u, in.Password})
+}
+
+// temporaryPassword is easy to read out or type: no 0/O, 1/l/I.
+func temporaryPassword() string {
+	const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 12)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
+}
+
+// changePassword sets the password of the logged in user. The current one is asked, except to replace a temporary one
+// (the user just typed it to log in).
+func (a *API) changePassword(w http.ResponseWriter, r *http.Request) {
+	var in struct{ Current, Password string }
+	if !readJSON(w, r, &in) {
+		return
+	}
+	u := userFrom(r)
+	if !u.MustChangePassword {
+		if _, err := a.Store.Authenticate(u.Email, in.Current); err != nil {
+			httpError(w, http.StatusBadRequest, "wrong_password", "current password is wrong")
+			return
+		}
+	}
+	if len(in.Password) < 8 {
+		httpError(w, http.StatusBadRequest, "password_too_short", "password must be at least 8 characters")
+		return
+	}
+	u.MustChangePassword = false
+	if err := a.Store.UpdateUser(u, in.Password); err != nil {
 		fail(w, err)
 		return
 	}

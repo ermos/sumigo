@@ -40,6 +40,8 @@ type User struct {
 	Name         string `json:"name"`
 	IsAdmin      bool   `json:"is_admin"`
 	PasswordHash string `json:"-"`
+	// MustChangePassword is set with a temporary password: nothing but choosing a new one is allowed.
+	MustChangePassword bool `json:"must_change_password"`
 }
 
 type Site struct {
@@ -105,8 +107,8 @@ func (s *Store) CreateUser(u *User, password string) error {
 	if err != nil {
 		return err
 	}
-	res, err := s.db.Exec(`INSERT INTO users (email, name, password_hash, is_admin) VALUES (?, ?, ?, ?)`,
-		u.Email, u.Name, string(hash), u.IsAdmin)
+	res, err := s.db.Exec(`INSERT INTO users (email, name, password_hash, is_admin, must_change_password) VALUES (?, ?, ?, ?, ?)`,
+		u.Email, u.Name, string(hash), u.IsAdmin, u.MustChangePassword)
 	if err != nil {
 		return err
 	}
@@ -114,7 +116,7 @@ func (s *Store) CreateUser(u *User, password string) error {
 	return err
 }
 
-// UpdateUser updates profile fields, and the password when non-empty.
+// UpdateUser updates profile fields, and the password when non-empty (with MustChangePassword).
 func (s *Store) UpdateUser(u *User, password string) error {
 	if _, err := s.db.Exec(`UPDATE users SET email = ?, name = ?, is_admin = ? WHERE id = ?`,
 		u.Email, u.Name, u.IsAdmin, u.ID); err != nil {
@@ -127,7 +129,7 @@ func (s *Store) UpdateUser(u *User, password string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, string(hash), u.ID)
+	_, err = s.db.Exec(`UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?`, string(hash), u.MustChangePassword, u.ID)
 	return err
 }
 
@@ -137,7 +139,7 @@ func (s *Store) DeleteUser(id int64) error {
 }
 
 func (s *Store) ListUsers() ([]User, error) {
-	rows, err := s.db.Query(`SELECT id, email, name, is_admin, password_hash FROM users ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, email, name, is_admin, password_hash, must_change_password FROM users ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +147,7 @@ func (s *Store) ListUsers() ([]User, error) {
 	users := []User{}
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash); err != nil {
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword); err != nil {
 			return nil, err
 		}
 		users = append(users, u)
@@ -155,8 +157,8 @@ func (s *Store) ListUsers() ([]User, error) {
 
 func (s *Store) userWhere(where string, arg any) (*User, error) {
 	var u User
-	err := s.db.QueryRow(`SELECT id, email, name, is_admin, password_hash FROM users WHERE `+where, arg).
-		Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash)
+	err := s.db.QueryRow(`SELECT id, email, name, is_admin, password_hash, must_change_password FROM users WHERE `+where, arg).
+		Scan(&u.ID, &u.Email, &u.Name, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
