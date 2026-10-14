@@ -205,11 +205,32 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	if res.StatusCode != http.StatusForbidden || body.Code != "publisher_only_draft" {
 		t.Fatalf("editor published on a review site: %d %q", res.StatusCode, body.Code)
 	}
+	// Deleting: editors cannot delete on a review site, but can drop their draft and keep the published version.
+	del := func(query string) *http.Response {
+		token, _ := st.CreateSession(editor.ID, time.Hour)
+		req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/sites/1/collections/posts/entries/hello-world"+query, nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	if res := del(""); res.StatusCode != http.StatusForbidden {
+		t.Fatalf("editor deleted on a review site: %d", res.StatusCode)
+	}
+	before := len(gh.writes)
+	if res := del("?only=draft"); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("discard draft failed: %d", res.StatusCode)
+	}
+	if got := gh.writes[before:]; strings.Join(got, ",") != "DELETE /git/refs/heads/cms/posts/hello-world" {
+		t.Fatalf("discard writes = %v", got)
+	}
 	site.Workflow = "direct"
 	if err := st.SaveSite(site); err != nil {
 		t.Fatal(err)
 	}
-	before := len(gh.writes)
+	before = len(gh.writes)
 	if res := publish(); res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("publish failed: %d %s", res.StatusCode, b)
