@@ -11,12 +11,15 @@ const emptySite: Site = {
   name: '',
   repo: '',
   forge: 'github',
-  forge_url: '',
+  forge_url: 'https://github.com',
   branch: 'main',
   workflow: 'direct',
   has_token: false,
   ai_enabled: false,
 };
+
+// Public instances, prefilled and replaced by self-hosted users. Forgejo / Gitea has none, Codeberg is one among many.
+const defaultURLs: Record<Forge, string> = { github: 'https://github.com', gitlab: 'https://gitlab.com', gitea: '' };
 
 // tokenURL opens the token form of the forge, prefilled where the forge allows it.
 // GitHub prefills owner and permissions but not the repository, the user picks it in the form.
@@ -49,7 +52,7 @@ export function SiteForm() {
 
   useEffect(() => {
     const s = sites.find((s) => String(s.id) === siteId);
-    setSite(s ? { ...s, token: '' } : emptySite);
+    setSite(s ? { ...s, forge_url: s.forge_url || defaultURLs[s.forge], token: '' } : emptySite);
   }, [siteId, sites]);
 
   const set = (k: keyof Site) => (e: { target: { value: string } }) => setSite({ ...site, [k]: e.target.value });
@@ -124,7 +127,11 @@ export function SiteForm() {
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="label">
               {t('Forge')}
-              <select className="field" value={site.forge} onChange={(e) => setSite({ ...site, forge: e.target.value as Forge })}>
+              <select className="field" value={site.forge} onChange={(e) => {
+                  const forge = e.target.value as Forge;
+                  // Swap the public instance with the forge, keep a self-hosted URL the user typed.
+                  setSite({ ...site, forge, forge_url: Object.values(defaultURLs).includes(site.forge_url) ? defaultURLs[forge] : site.forge_url });
+                }}>
                 {Object.entries(forgeNames).map(([k, name]) => (
                   <option key={k} value={k}>
                     {name}
@@ -139,8 +146,8 @@ export function SiteForm() {
                 type="url"
                 value={site.forge_url}
                 onChange={set('forge_url')}
-                placeholder={site.forge === 'gitea' ? 'https://codeberg.org' : forgeURL({ ...site, forge_url: '' })}
-                required={site.forge === 'gitea'}
+                placeholder="https://codeberg.org"
+                required
               />
             </label>
           </div>
