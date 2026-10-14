@@ -586,7 +586,7 @@ export function SiteMembers() {
               </label>
               <label className="label">
                 {t('Role')}
-                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'), 'w-full')}
+                {roleSelect(form.role, (role) => setForm({ ...form, role }), t('Role'), 'h-[38px] w-full')}
               </label>
               {form.note && <p className="text-[13px] text-muted">{form.note}</p>}
               {form.step === 'create' && (
