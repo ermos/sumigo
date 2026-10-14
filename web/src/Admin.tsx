@@ -447,10 +447,7 @@ export function AISettingsPage() {
   const enabledSites = sites.filter((s) => s.ai_enabled);
   return (
     <div className="max-w-3xl">
-      <div className="mb-6">
-        <h1>{t('AI assistant')}</h1>
-        <p className="text-muted">{t('The assistant suggests titles and descriptions and proofreads articles, from the editor. The API key stays on the server.')}</p>
-      </div>
+      <h1 className="mb-6">{t('AI assistant')}</h1>
       <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
         <div className="flex flex-col gap-5 p-6">
           <label className="flex items-center gap-2 text-[13px] font-medium">

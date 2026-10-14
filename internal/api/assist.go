@@ -60,7 +60,24 @@ func (a *API) aiReady(site *store.Site) (store.AISettings, bool) {
 
 const assistSystem = `You assist the editors of a website in a content management system.
 Reply with the requested text only: no preamble, no explanation, no surrounding quotes, no code fence.
-Write in the language of the entry.`
+Write in the language of the entry, or of the editor's brief when the entry is still empty.`
+
+// seoRules apply to every generated value, so suggestions are ready to rank without rework.
+const seoRules = `SEO rules:
+- Find the main keyword of the entry (the topic people would search for) and use it naturally, never stuffed.
+- Title: 50 to 60 characters, main keyword near the start, specific and honest, no clickbait, no all caps.
+- Description, excerpt or summary: 140 to 160 characters, includes the main keyword, says what the reader gets and invites to read.
+- Never invent facts, figures, quotes, sources or links. Where one is needed, leave a placeholder in square brackets, like [source to add].`
+
+// seoArticleRules apply when writing a whole Markdown body.
+const seoArticleRules = `Article rules:
+- Do not repeat the title as a heading: the body starts with an introduction, then uses ## and ### headings.
+- The introduction states the topic and includes the main keyword within the first 100 words.
+- Headings are descriptive and use the main keyword or close variants where it reads naturally.
+- Short paragraphs (2 to 4 sentences), bulleted or numbered lists where they help scanning, one idea per section.
+- Link text describes its target, never "click here". Images, if any, get a descriptive alt text.
+- End with a short conclusion or next step for the reader.
+- 800 to 1500 words unless the brief asks otherwise.`
 
 // assist writes a field value ("write") or proofreads a text field ("proofread") with the configured provider.
 func (a *API) assist(w http.ResponseWriter, r *http.Request) {
@@ -77,6 +94,8 @@ func (a *API) assist(w http.ResponseWriter, r *http.Request) {
 		Action string         `json:"action"`
 		Field  string         `json:"field"`
 		Data   map[string]any `json:"data"`
+		// Brief is the editor's description of the article, when writing a whole Markdown body.
+		Brief string `json:"brief"`
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -93,11 +112,22 @@ func (a *API) assist(w http.ResponseWriter, r *http.Request) {
 		}
 		switch in.Action {
 		case "write":
-			entry, _ := json.MarshalIndent(in.Data, "", "  ")
-			prompt = fmt.Sprintf("The entry being edited, as JSON:\n%s\n\n"+
-				"Write a value for the field %q (name: %s, type: %s), based on the rest of the entry. "+
-				"Follow the usual conventions for such a field on a website: a title is short and specific, "+
-				"a description or excerpt is one or two sentences under 160 characters.", entry, label, f.Name, f.Widget)
+			data := map[string]any{}
+			for k, v := range in.Data {
+				data[k] = v
+			}
+			delete(data, f.Name)
+			entry, _ := json.MarshalIndent(data, "", "  ")
+			if f.Widget == "markdown" {
+				prompt = fmt.Sprintf("The other fields of the entry, as JSON:\n%s\n\nThe editor's brief:\n%s\n\n"+
+					"Write the field %q: the full article body in Markdown, following the brief and consistent with the other fields.\n\n%s\n\n%s",
+					entry, in.Brief, label, seoRules, seoArticleRules)
+				maxTokens = 8000
+				break
+			}
+			prompt = fmt.Sprintf("The other fields of the entry, as JSON:\n%s\n\n"+
+				"Write a value for the field %q (name: %s, type: %s), based on the rest of the entry.\n\n%s",
+				entry, label, f.Name, f.Widget, seoRules)
 		case "proofread":
 			text, _ := in.Data[f.Name].(string)
 			if text == "" {
