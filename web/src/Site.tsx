@@ -127,7 +127,8 @@ export function ContentLayout() {
     <div className="flex flex-col gap-8 md:flex-row">
       <aside className="shrink-0 md:w-52">
         <nav className="flex flex-col gap-0.5">
-          <p className="px-2.5 pb-1.5 text-sm font-semibold text-ink">{t('Collections')}</p>
+          {/* Same size and row height (38px, like the search field) as the collection title, so both line up. */}
+          <p className="mb-5 flex h-[38px] items-center px-2.5 text-2xl font-semibold tracking-tight">{t('Collections')}</p>
           {site.config?.collections.map((c) => (
             <NavLink key={c.name} to={`/sites/${site.id}/c/${c.name}`} className={sideLink}>
               {c.label || c.name}
