@@ -212,7 +212,6 @@ export const es: Record<keyof typeof fr, string> = {
   Undo: 'Deshacer',
   Proofread: 'Revisar',
   'Proofreading…': 'Revisando…',
-  'Fixes spelling and grammar without changing the content. Cmd+Z undoes it.': 'Corrige la ortografía y la gramática sin cambiar el contenido. Cmd+Z lo deshace.',
   Schedule: 'Programar',
   Scheduled: 'Programado',
   'Scheduled {date}': 'Programado el {date}',
@@ -251,4 +250,14 @@ export const es: Record<keyof typeof fr, string> = {
   'Topic, audience, key points, tone…': 'Tema, público, puntos clave, tono…',
   'Replaces the current content (Cmd+Z to undo).': 'Reemplaza el contenido actual (Cmd+Z para deshacer).',
   'Save the draft first.': 'Guarda primero el borrador.',
+  // Diffs and proofreading review
+  Changes: 'Cambios',
+  'No diff available for this version.': 'No hay diff disponible para esta versión.',
+  'Fixes spelling and grammar without changing the content.': 'Corrige la ortografía y la gramática sin cambiar el contenido.',
+  'No correction needed.': 'No hace falta ninguna corrección.',
+  '{n} corrections': '{n} correcciones',
+  Accept: 'Aceptar',
+  Discard: 'Descartar',
+  added: 'añadido',
+  removed: 'eliminado',
 };

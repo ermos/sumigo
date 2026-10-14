@@ -66,6 +66,8 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[{"sha":"` + strings.Repeat("a", 40) + `","commit":{"message":"content(posts): update old\n\nEdited by Jane via Sumigo","author":{"name":"Jane","date":"2026-10-01T09:00:00Z"}}}]`))
 	case r.Method == http.MethodGet && p == "/contents/content/posts/old.md" && r.URL.Query().Get("ref") == strings.Repeat("a", 40):
 		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte("---\ntitle: Old title\n---\nOld body\n"))})
+	case r.Method == http.MethodGet && p == "/commits/"+strings.Repeat("a", 40):
+		_, _ = w.Write([]byte(`{"files":[{"filename":"static/x.png"},{"filename":"content/posts/old.md","patch":"@@ -1 +1 @@\n-title: Older\n+title: Old title"}]}`))
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/git/ref/heads/"):
 		_, _ = w.Write([]byte(`{"object":{"sha":"base123"}}`))
 	case r.Method == http.MethodGet && p == "/contents/static/img":
@@ -256,7 +258,7 @@ func TestMediaAndHistoryAreServed(t *testing.T) {
 	if _, body := get("/api/sites/1/collections/posts/entries/old/history"); !strings.Contains(body, `"message":"content(posts): update old","author":"Jane"`) {
 		t.Fatalf("history: %s", body)
 	}
-	if _, body := get("/api/sites/1/collections/posts/entries/old/history/" + strings.Repeat("a", 40)); !strings.Contains(body, `"title":"Old title"`) || !strings.Contains(body, "Old body") {
+	if _, body := get("/api/sites/1/collections/posts/entries/old/history/" + strings.Repeat("a", 40)); !strings.Contains(body, `"title":"Old title"`) || !strings.Contains(body, "Old body") || !strings.Contains(body, `+title: Old title`) {
 		t.Fatalf("version: %s", body)
 	}
 

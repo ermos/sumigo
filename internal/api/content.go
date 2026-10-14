@@ -696,7 +696,7 @@ func (a *API) entryHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, commits)
 }
 
-// entryVersion returns an entry as it was at a commit, to preview or restore it.
+// entryVersion returns an entry as it was at a commit, to preview or restore it, with the diff that commit made.
 func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 	sc, col, ok := a.collection(w, r, store.RoleViewer)
 	if !ok {
@@ -718,7 +718,12 @@ func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data[content.BodyField] = body
-	writeJSON(w, map[string]any{"data": data})
+	patch, err := sc.gh.CommitPatch(r.Context(), sha, entryPath(col, slug))
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	writeJSON(w, map[string]any{"data": data, "patch": patch})
 }
 
 func isHex(s string) bool {

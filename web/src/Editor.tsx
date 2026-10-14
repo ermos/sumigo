@@ -6,6 +6,7 @@ import { api, can, Commit, Entry, EntrySummary, Field, mediaSrc, Pull, SiteDetai
 import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
+import { diffText, Part } from './diff';
 import { Chevron } from './App';
 import { t } from './i18n';
 
@@ -586,6 +587,15 @@ function MarkdownInput({
 }) {
   const [uploading, setUploading] = useState(false);
   const [proofing, setProofing] = useState(false);
+  // review holds the AI corrections until the editor accepts or discards them.
+  const [review, setReview] = useState<{ text: string; parts: Part[] } | null>(null);
+  const [note, setNote] = useState('');
+  const accept = () => {
+    const text = review!.text;
+    setReview(null);
+    // After the textarea is shown again, through replace so Cmd+Z brings the original text back.
+    setTimeout(() => replace(0, ref.current!.value.length, text, 0));
+  };
   const [writing, setWriting] = useState(false);
   const [brief, setBrief] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
@@ -776,7 +786,7 @@ function MarkdownInput({
       <div className="panel focus-within:border-accent focus-within:ring-3 focus-within:ring-accent/15">
         <div className="sticky top-0 z-10 flex flex-wrap items-center gap-1 rounded-t-lg border-b border-line bg-surface px-2 py-1.5">
           {!readOnly && (
-            <div role="toolbar" aria-label={t('Formatting')} className="flex flex-wrap items-center">
+            <div role="toolbar" aria-label={t('Formatting')} className={`flex flex-wrap items-center ${review ? 'pointer-events-none opacity-40' : ''}`}>
               {tools.map((group, i) => (
                 <div key={i} className="mr-1.5 flex items-center gap-0.5 border-r border-line pr-1.5">
                   {group.map((t) => (
@@ -828,15 +838,17 @@ function MarkdownInput({
             <button
               type="button"
               className={`${suggest ? '' : 'ml-auto'} flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-60`}
-              disabled={proofing || !value.trim()}
-              title={t('Fixes spelling and grammar without changing the content. Cmd+Z undoes it.')}
+              disabled={proofing || !!review || !value.trim()}
+              title={t('Fixes spelling and grammar without changing the content.')}
               onClick={async () => {
                 setProofing(true);
                 setError('');
+                setNote('');
                 try {
                   const text = await proofread();
-                  // Through replace, so Cmd+Z brings the original text back.
-                  if (text) replace(0, ref.current!.value.length, text, 0);
+                  const parts = diffText(value, text);
+                  if (!text || parts.every((p) => p.same)) setNote(t('No correction needed.'));
+                  else setReview({ text, parts });
                 } catch (e) {
                   setError((e as Error).message);
                 } finally {
@@ -876,11 +888,30 @@ function MarkdownInput({
           <span className={`${(proofread || suggest) && !readOnly ? '' : 'ml-auto'} pr-1 text-xs font-normal text-muted tabular-nums`}>{t('{n} words', { n: words })}</span>
         </div>
         {error && <p className="border-b border-line bg-danger/5 px-4 py-2 text-xs font-normal text-danger">{error}</p>}
+        {note && <p className="border-b border-line bg-ok/5 px-4 py-2 text-xs font-normal text-ok">{note}</p>}
+        {review && (
+          <>
+            <div className="flex items-center gap-2 border-b border-line bg-accent-soft/60 px-4 py-2 text-xs font-normal">
+              <span className="mr-auto text-ink">{t('{n} corrections', { n: review.parts.filter((p) => !p.same).length })}</span>
+              <button type="button" className="btn py-1" onClick={() => setReview(null)}>
+                {t('Discard')}
+              </button>
+              <button type="button" className="btn btn-primary py-1" onClick={accept}>
+                {t('Accept')}
+              </button>
+            </div>
+            <Corrections parts={review.parts} />
+          </>
+        )}
         <textarea
           ref={ref}
+          hidden={!!review}
           className="block min-h-[28rem] w-full resize-none rounded-b-lg bg-transparent px-5 py-4 text-[15px] leading-7 font-normal field-sizing-content focus:outline-none"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            setNote('');
+            onChange(e.target.value);
+          }}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           onDrop={onDrop}
@@ -951,7 +982,8 @@ function ScheduleMenu({ site, pull, dirty, onChange }: { site: SiteDetail; pull:
 function History({ site, url, fields, titleField, onRestore }: { site: SiteDetail; url: string; fields: Field[]; titleField: string; onRestore?: (data: Data) => void }) {
   const [commits, setCommits] = useState<Commit[] | null>(null);
   const [selected, setSelected] = useState<Commit | null>(null);
-  const [version, setVersion] = useState<Data | null>(null);
+  const [version, setVersion] = useState<{ data: Data; patch: string } | null>(null);
+  const [mode, setMode] = useState<'changes' | 'preview'>('changes');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -964,8 +996,8 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
     setSelected(c);
     setVersion(null);
     setError('');
-    api<{ data: Data }>('GET', `${url}/${c.sha}`)
-      .then((v) => setVersion(v.data))
+    api<{ data: Data; patch: string }>('GET', `${url}/${c.sha}`)
+      .then(setVersion)
       .catch((e) => setError(e.message));
   };
 
@@ -978,8 +1010,21 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
             {t('History')}
           </button>
           <span className="min-w-0 flex-1 truncate text-[13px]">{t('Version of {date} by {author}', { date: formatDateTime(selected.date), author: selected.author })}</span>
+          <div className="flex rounded-md bg-canvas p-0.5 ring-1 ring-line">
+            {(['changes', 'preview'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+                className={`rounded px-2.5 py-1 text-[13px] font-medium ${mode === m ? 'bg-surface text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`}
+              >
+                {t(m === 'changes' ? 'Changes' : 'Preview')}
+              </button>
+            ))}
+          </div>
           {onRestore && (
-            <button type="button" className="btn btn-primary" disabled={!version} onClick={() => version && onRestore(version)} title={t('Loads this version in the form. Save it to keep it.')}>
+            <button type="button" className="btn btn-primary" disabled={!version} onClick={() => version && onRestore(version.data)} title={t('Loads this version in the form. Save it to keep it.')}>
               {t('Restore')}
             </button>
           )}
@@ -989,7 +1034,15 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
             <Notice>{error}</Notice>
           </div>
         )}
-        {version ? <Preview site={site} fields={fields} titleField={titleField} data={version} /> : !error && <Loading />}
+        {!version ? (
+          !error && <Loading />
+        ) : mode === 'preview' ? (
+          <Preview site={site} fields={fields} titleField={titleField} data={version.data} />
+        ) : version.patch ? (
+          <Patch patch={version.patch} />
+        ) : (
+          <Empty>{t('No diff available for this version.')}</Empty>
+        )}
       </div>
     );
   }
@@ -1017,6 +1070,87 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+const lineTone: Record<string, string> = { '+': 'bg-ok/10', '-': 'bg-danger/10', '@': 'bg-canvas text-muted', '\\': 'text-muted' };
+
+// Patch shows a git diff in red and green. Removed lines followed by added ones are paired,
+// and the words that changed between them are highlighted darker.
+function Patch({ patch }: { patch: string }) {
+  const rows = patch.split('\n');
+  const out: ReactNode[] = [];
+  for (let i = 0; i < rows.length;) {
+    if (rows[i][0] !== '-') {
+      out.push(<PatchLine key={i} sign={rows[i][0] ?? ' '} text={rows[i].slice(1)} />);
+      i++;
+      continue;
+    }
+    const del: string[] = [];
+    const add: string[] = [];
+    const start = i;
+    while (rows[i]?.[0] === '-') del.push(rows[i++].slice(1));
+    while (rows[i]?.[0] === '+') add.push(rows[i++].slice(1));
+    const pairs = del.map((d, k) => (add[k] !== undefined ? diffText(d, add[k]) : undefined));
+    del.forEach((d, k) => out.push(<PatchLine key={`${start}-${k}`} sign="-" text={d} parts={pairs[k]} />));
+    add.forEach((a, k) => out.push(<PatchLine key={`${start}+${k}`} sign="+" text={a} parts={pairs[k]} />));
+  }
+  return <div className="py-4 font-mono text-xs leading-5">{out}</div>;
+}
+
+function PatchLine({ sign, text, parts }: { sign: string; text: string; parts?: Part[] }) {
+  const mark = sign === '-' ? 'rounded-sm bg-danger/25' : 'rounded-sm bg-ok/25';
+  return (
+    <div className={`flex gap-3 px-6 ${lineTone[sign] ?? ''}`}>
+      <span aria-hidden className={`w-3 shrink-0 select-none ${sign === '-' ? 'text-danger' : sign === '+' ? 'text-ok' : 'text-muted'}`}>
+        {sign === '@' || sign === '\\' ? '' : sign}
+      </span>
+      <span className="min-w-0 flex-1 break-words whitespace-pre-wrap">
+        {sign === '@' || sign === '\\'
+          ? sign + text
+          : parts
+            ? parts.map((p, k) =>
+                p.same ? (
+                  p.text
+                ) : (
+                  <span key={k} className={mark}>
+                    {sign === '-' ? p.old : p.new}
+                  </span>
+                ),
+              )
+            : text || ' '}
+      </span>
+    </div>
+  );
+}
+
+// Corrections shows the corrected text with each change highlighted. Hovering or focusing one
+// shows what it was: the old text struck through, an arrow, the new text.
+function Corrections({ parts }: { parts: Part[] }) {
+  return (
+    <div className="min-h-[28rem] px-5 py-4 text-[15px] leading-7 font-normal break-words whitespace-pre-wrap">
+      {parts.map((p, k) =>
+        p.same ? (
+          p.text
+        ) : (
+          <span
+            key={k}
+            tabIndex={0}
+            className={`group relative rounded-sm outline-none focus:ring-2 focus:ring-accent/40 ${p.new ? 'bg-ok/15 underline decoration-ok/60 decoration-2 underline-offset-4' : 'bg-danger/10 text-danger line-through'}`}
+          >
+            {p.new || p.old}
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 hidden w-max max-w-xs -translate-x-1/2 rounded-md bg-ink px-2.5 py-1.5 text-xs leading-5 whitespace-pre-wrap text-white no-underline shadow-lg group-hover:block group-focus:block"
+            >
+              {p.old ? <s className="text-red-300">{p.old}</s> : <span className="text-white/60">{t('added')}</span>}
+              <span className="mx-1.5 text-white/60">→</span>
+              {p.new ? <span className="text-green-300">{p.new}</span> : <span className="text-white/60">{t('removed')}</span>}
+            </span>
+          </span>
+        ),
+      )}
     </div>
   );
 }
