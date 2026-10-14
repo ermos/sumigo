@@ -192,6 +192,7 @@ export const es: Record<keyof typeof fr, string> = {
   'Problems': 'Problemas',
   'To improve': 'Por mejorar',
   'Passed': 'Superado',
+  'Admins open every site': 'Los administradores abren todos los sitios',
   'Access token': 'Token de acceso',
   '(already set, leave empty to keep it)': '(ya definido, déjalo vacío para conservarlo)',
   'Fine-grained token with Contents and Pull requests read/write on this repository.': 'Token fine-grained con Contents y Pull requests en lectura/escritura sobre este repositorio.',

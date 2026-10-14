@@ -190,6 +190,7 @@ export const fr = {
   'Problems': 'Problèmes',
   'To improve': 'À améliorer',
   'Passed': 'Réussi',
+  'Admins open every site': 'Les admins ouvrent tous les sites',
   'Access token': "Token d'accès",
   '(already set, leave empty to keep it)': '(déjà défini, laissez vide pour le conserver)',
   'Fine-grained token with Contents and Pull requests read/write on this repository.': 'Token fine-grained avec Contents et Pull requests en lecture/écriture sur ce dépôt.',

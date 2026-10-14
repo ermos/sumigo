@@ -468,7 +468,8 @@ export function SiteMembers() {
       setError((e as Error).message);
     }
   };
-  const members = users.filter((u) => !u.is_admin);
+  // Admins are listed too: they open every site, so their role here is fixed.
+  const members = [...users].sort((a, b) => Number(b.is_admin) - Number(a.is_admin));
   const noUser = t('No user to add yet. {link} first.').split('{link}');
 
   return (
@@ -486,17 +487,23 @@ export function SiteMembers() {
                 <div className="truncate text-[13px] font-medium">{u.name}</div>
                 <div className="truncate text-xs text-muted">{u.email}</div>
               </div>
-              <select className="field w-40 py-1" value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)} aria-label={t('Role of {name}', { name: u.name })}>
-                <option value="">{t('No access')}</option>
-                {(['viewer', 'editor', 'publisher'] as const).map((r) => (
-                  <option key={r} value={r}>
-                    {t(roleNames[r])}
-                  </option>
-                ))}
-              </select>
+              {u.is_admin ? (
+                <span className="pill w-40 justify-center bg-accent-soft text-accent" title={t('Admins open every site')}>
+                  {t('Admin')}
+                </span>
+              ) : (
+                <select className="field w-40 py-1" value={roleOf(u.id)} onChange={(e) => setRole(u.id, e.target.value)} aria-label={t('Role of {name}', { name: u.name })}>
+                  <option value="">{t('No access')}</option>
+                  {(['viewer', 'editor', 'publisher'] as const).map((r) => (
+                    <option key={r} value={r}>
+                      {t(roleNames[r])}
+                    </option>
+                  ))}
+                </select>
+              )}
             </li>
           ))}
-          {members.length === 0 && (
+          {!members.some((u) => !u.is_admin) && (
             <li className="px-5 py-6 text-center text-[13px] text-muted">
               {noUser[0]}
               <Link to="/admin/users" className="text-accent hover:underline">
