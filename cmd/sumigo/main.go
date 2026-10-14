@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ermos/sumigo/internal/ai"
 	"github.com/ermos/sumigo/internal/api"
 	"github.com/ermos/sumigo/internal/github"
 	"github.com/ermos/sumigo/internal/store"
@@ -38,7 +39,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	a := &api.API{Store: st, NewGitHub: github.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
+	a := &api.API{Store: st, NewGitHub: github.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", a.Handler())
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
@@ -47,6 +48,7 @@ func main() {
 	srv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go a.RunScheduler(ctx, time.Minute)
 	go func() {
 		log.Printf("listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

@@ -2,8 +2,8 @@ import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffe
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Entry, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
-import { DraftPill, Empty, entriesKey, formatDate, Loading, Notice, useSite } from './Site';
+import { api, can, Commit, Entry, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached } from './cache';
 import { Chevron } from './App';
@@ -26,7 +26,10 @@ export default function Editor() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'draft' | 'publish' | 'delete' | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [preview, setPreview] = useState(true);
+  // The right pane shows the live preview, or the history of the entry.
+  const [panel, setPanel] = useState<'preview' | 'history' | null>('preview');
+  // Bumped on restore so fields holding their own text state start over.
+  const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
   const base = `/sites/${site.id}/collections/${col}/entries`;
 
@@ -134,7 +137,25 @@ export default function Editor() {
     setDirty(true);
     setStatus('');
   };
-  const field = (f: Field) => <FieldInput key={f.name} site={site} field={f} value={data?.[f.name]} readOnly={readOnly} onChange={change(f.name)} />;
+  const assist =
+    site.ai && !readOnly
+      ? async (f: Field, action: 'write' | 'proofread') => (await api<{ text: string }>('POST', `/sites/${site.id}/collections/${col}/ai`, { action, field: f.name, data })).text
+      : undefined;
+  const field = (f: Field) => <FieldInput key={f.name} site={site} field={f} value={data?.[f.name]} readOnly={readOnly} onChange={change(f.name)} assist={assist} />;
+
+  const setPull = (p: Pull) => {
+    setDraft(p);
+    updateList((list) => list.map((e) => (e.slug === slug ? { ...e, draft: p } : e)));
+  };
+  const restore = (version: Data) => {
+    edited.current = true;
+    setData(version);
+    setFormKey((k) => k + 1);
+    setDirty(true);
+    setStatus('');
+    setPanel('preview');
+  };
+  const togglePanel = (p: 'preview' | 'history') => setPanel(panel === p ? null : p);
   const back = `/sites/${site.id}/c/${col}`;
   const title = (data && collection.identifier_field && String(data[collection.identifier_field] ?? '')) || (data && typeof data.title === 'string' && data.title) || slug;
 
@@ -164,9 +185,22 @@ export default function Editor() {
         ) : (
           status && <span className="hidden text-[13px] text-ok sm:inline">{status}</span>
         )}
-        <button type="button" className="btn hidden lg:inline-flex" onClick={() => setPreview(!preview)} aria-pressed={preview}>
-          {t(preview ? 'Hide preview' : 'Show preview')}
-        </button>
+        <div className="hidden rounded-md bg-canvas p-0.5 ring-1 ring-line lg:flex">
+          {(['preview', 'history'] as const).map(
+            (p) =>
+              (p === 'preview' || slug) && (
+                <button
+                  key={p}
+                  type="button"
+                  aria-pressed={panel === p}
+                  onClick={() => togglePanel(p)}
+                  className={`rounded px-2.5 py-1 text-[13px] font-medium ${panel === p ? 'bg-surface text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`}
+                >
+                  {t(p === 'preview' ? 'Preview' : 'History')}
+                </button>
+              ),
+          )}
+        </div>
         {slug && can(site.role, 'publisher') && (
           <button type="button" className="btn btn-danger" onClick={remove} disabled={!!busy}>
             <Pending on={busy === 'delete'}>{t(busy === 'delete' ? 'Deleting…' : 'Delete')}</Pending>
@@ -177,6 +211,7 @@ export default function Editor() {
             <Pending on={busy === 'draft'}>{t(busy === 'draft' ? 'Saving…' : 'Save draft')}</Pending>
           </button>
         )}
+        {canPublish && draft && slug && <ScheduleMenu site={site} pull={draft} dirty={dirty} onChange={setPull} />}
         {canPublish && (
           <button
             name="publish"
@@ -201,13 +236,25 @@ export default function Editor() {
         </div>
       )}
       {data ? (
-        <div className={`grid min-h-0 flex-1 ${preview ? 'lg:grid-cols-2' : ''}`}>
+        <div className={`grid min-h-0 flex-1 ${panel ? 'lg:grid-cols-2' : ''}`}>
           <div className="overflow-y-auto">
-            <div className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-8">{collection.fields.map(field)}</div>
+            <div key={formKey} className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-8">
+              {collection.fields.map(field)}
+            </div>
           </div>
-          {preview && (
+          {panel && (
             <div className="hidden overflow-y-auto border-l border-line bg-surface lg:block">
-              <Preview site={site} fields={collection.fields} titleField={collection.identifier_field || 'title'} data={data} />
+              {panel === 'history' && slug ? (
+                <History
+                  site={site}
+                  url={`${base}/${encodeURIComponent(slug)}/history`}
+                  fields={collection.fields}
+                  titleField={collection.identifier_field || 'title'}
+                  onRestore={readOnly ? undefined : restore}
+                />
+              ) : (
+                <Preview site={site} fields={collection.fields} titleField={collection.identifier_field || 'title'} data={data} />
+              )}
             </div>
           )}
         </div>
@@ -272,6 +319,8 @@ interface FieldProps {
   value: unknown;
   readOnly: boolean;
   onChange: (v: unknown) => void;
+  // assist asks the AI assistant for a value, when it is on for the site.
+  assist?: (field: Field, action: 'write' | 'proofread') => Promise<string>;
 }
 
 // toLocalInput turns a stored ISO date into the local "YYYY-MM-DDTHH:MM" a datetime input expects.
@@ -286,18 +335,58 @@ function toLocalInput(value: string) {
 const isRequired = (f: Field) => f.required !== false && f.widget !== 'boolean';
 const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean'].includes(typeof v);
 
-function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
-  const label = (
-    <span>
-      {field.label || field.name}
-      {!isRequired(field) && <span className="font-normal text-muted"> {t('(optional)')}</span>}
-    </span>
-  );
+function FieldInput({ site, field, value, readOnly, onChange, assist }: FieldProps) {
   const str = value == null ? '' : String(value);
-  const common = { disabled: readOnly, required: isRequired(field) };
-  let input;
   const complex =
     field.widget === 'object' || (field.widget === 'list' && (field.fields || (Array.isArray(value) && value.some((v) => typeof v !== 'string')))) || (!isPrimitive(value) && field.widget !== 'list');
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiError, setAiError] = useState('');
+  // The value before the last suggestion, to undo it.
+  const [previous, setPrevious] = useState<string | null>(null);
+  const suggest = async () => {
+    setSuggesting(true);
+    setAiError('');
+    try {
+      const text = await assist!(field, 'write');
+      setPrevious(str);
+      onChange(text);
+    } catch (e) {
+      setAiError((e as Error).message);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+  const canSuggest = assist && !complex && (field.widget === 'string' || field.widget === 'text');
+  const label = (
+    <span className="flex items-center gap-3">
+      <span>
+        {field.label || field.name}
+        {!isRequired(field) && <span className="font-normal text-muted"> {t('(optional)')}</span>}
+      </span>
+      {canSuggest && (
+        <span className="ml-auto flex items-center gap-3 text-xs font-medium">
+          {previous !== null && !suggesting && (
+            <button
+              type="button"
+              className="text-muted hover:text-ink"
+              onClick={() => {
+                onChange(previous);
+                setPrevious(null);
+              }}
+            >
+              {t('Undo')}
+            </button>
+          )}
+          <button type="button" className="flex items-center gap-1 text-accent hover:underline disabled:no-underline disabled:opacity-60" onClick={suggest} disabled={suggesting}>
+            {suggesting ? <Spinner className="size-3" /> : <Icon d={icons.sparkle} size="size-3.5" />}
+            {t(suggesting ? 'Writing…' : 'Suggest')}
+          </button>
+        </span>
+      )}
+    </span>
+  );
+  const common = { disabled: readOnly, required: isRequired(field) };
+  let input;
   switch (complex ? 'json' : field.widget) {
     case 'hidden':
       return null;
@@ -308,7 +397,7 @@ function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
       input = <textarea className="field" rows={4} value={str} onChange={(e) => onChange(e.target.value)} {...common} />;
       break;
     case 'markdown':
-      return <MarkdownInput site={site} label={label} value={str} onChange={onChange} readOnly={readOnly} />;
+      return <MarkdownInput site={site} label={label} value={str} onChange={onChange} readOnly={readOnly} proofread={assist && (() => assist(field, 'proofread'))} />;
     case 'boolean':
       return (
         <label className="flex items-center gap-2 text-[13px] font-medium">
@@ -352,6 +441,7 @@ function FieldInput({ site, field, value, readOnly, onChange }: FieldProps) {
     <label className="label">
       {label}
       {input}
+      {aiError && <span className="text-xs font-normal text-danger">{aiError}</span>}
     </label>
   );
 }
@@ -452,10 +542,12 @@ const icons = {
   ul: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
   ol: 'M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1',
   image: 'M21 15l-5-5L5 21M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 9h.01',
+  sparkle:
+    'M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0zM20 3v4M22 5h-4',
 };
 
-const Icon = ({ d }: { d: string }) => (
-  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+const Icon = ({ d, size = 'size-4' }: { d: string; size?: string }) => (
+  <svg viewBox="0 0 24 24" className={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <path d={d} />
   </svg>
 );
@@ -464,8 +556,23 @@ const BLOCK_PREFIX = /^(#{1,6} |> |[-*] |\d+\. )/;
 const isMac = typeof navigator !== 'undefined' && /Mac|iP/.test(navigator.platform);
 const mod = isMac ? '⌘' : 'Ctrl+';
 
-function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteDetail; label: ReactNode; value: string; onChange: (v: string) => void; readOnly: boolean }) {
+function MarkdownInput({
+  site,
+  label,
+  value,
+  onChange,
+  readOnly,
+  proofread,
+}: {
+  site: SiteDetail;
+  label: ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  readOnly: boolean;
+  proofread?: () => Promise<string>;
+}) {
   const [uploading, setUploading] = useState(false);
+  const [proofing, setProofing] = useState(false);
   const [error, setError] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -674,7 +781,31 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
               )}
             </div>
           )}
-          <span className="ml-auto pr-1 text-xs font-normal text-muted tabular-nums">{t('{n} words', { n: words })}</span>
+          {proofread && !readOnly && (
+            <button
+              type="button"
+              className="ml-auto flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent hover:bg-accent-soft disabled:opacity-60"
+              disabled={proofing || !value.trim()}
+              title={t('Fixes spelling and grammar without changing the content. Cmd+Z undoes it.')}
+              onClick={async () => {
+                setProofing(true);
+                setError('');
+                try {
+                  const text = await proofread();
+                  // Through replace, so Cmd+Z brings the original text back.
+                  if (text) replace(0, ref.current!.value.length, text, 0);
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setProofing(false);
+                }
+              }}
+            >
+              {proofing ? <Spinner className="size-3" /> : <Icon d={icons.sparkle} size="size-3.5" />}
+              {t(proofing ? 'Proofreading…' : 'Proofread')}
+            </button>
+          )}
+          <span className={`${proofread && !readOnly ? '' : 'ml-auto'} pr-1 text-xs font-normal text-muted tabular-nums`}>{t('{n} words', { n: words })}</span>
         </div>
         {error && <p className="border-b border-line bg-danger/5 px-4 py-2 text-xs font-normal text-danger">{error}</p>}
         <textarea
@@ -690,6 +821,137 @@ function MarkdownInput({ site, label, value, onChange, readOnly }: { site: SiteD
           aria-label={t('Content')}
         />
       </div>
+    </div>
+  );
+}
+
+const defaultScheduleTime = () => {
+  const d = new Date(Date.now() + 86400000);
+  d.setHours(9, 0, 0, 0);
+  return d;
+};
+
+// ScheduleMenu plans when the draft gets published, by the server, even with the CMS closed.
+function ScheduleMenu({ site, pull, dirty, onChange }: { site: SiteDetail; pull: Pull; dirty: boolean; onChange: (p: Pull) => void }) {
+  const menu = useRef<HTMLDetailsElement>(null);
+  const [at, setAt] = useState(() => toLocalInput((pull.scheduled_at ? new Date(pull.scheduled_at) : defaultScheduleTime()).toISOString()));
+  const [busy, setBusy] = useState<'set' | 'cancel' | null>(null);
+  const [error, setError] = useState('');
+  const run = async (kind: 'set' | 'cancel') => {
+    setBusy(kind);
+    setError('');
+    try {
+      const url = `/sites/${site.id}/pulls/${pull.number}/schedule`;
+      if (kind === 'set') onChange(await api<Pull>('PUT', url, { publish_at: new Date(at).toISOString() }));
+      else {
+        await api('DELETE', url);
+        onChange({ ...pull, scheduled_at: undefined });
+      }
+      menu.current?.removeAttribute('open');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <details ref={menu} className="relative">
+      <summary className="btn cursor-pointer list-none">{t(pull.scheduled_at ? 'Scheduled' : 'Schedule')}</summary>
+      <div className="panel absolute top-full right-0 z-30 mt-2 flex w-72 flex-col gap-3 p-4 shadow-lg">
+        <label className="label">
+          {t('Publish on')}
+          <input className="field" type="datetime-local" value={at} min={toLocalInput(new Date().toISOString())} onChange={(e) => setAt(e.target.value)} />
+        </label>
+        <p className="text-xs text-muted">
+          {dirty ? t('Save the draft first: the saved version is the one that gets published.') : t('The saved draft is published at this time, even if nobody has the CMS open.')}
+        </p>
+        {error && <p className="text-xs text-danger">{error}</p>}
+        <div className="flex justify-end gap-2">
+          {pull.scheduled_at && (
+            <button type="button" className="btn" onClick={() => run('cancel')} disabled={!!busy}>
+              <Pending on={busy === 'cancel'}>{t('Cancel schedule')}</Pending>
+            </button>
+          )}
+          <button type="button" className="btn btn-primary" onClick={() => run('set')} disabled={!!busy || dirty || !at}>
+            <Pending on={busy === 'set'}>{t(pull.scheduled_at ? 'Reschedule' : 'Schedule')}</Pending>
+          </button>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+// History lists the versions of an entry. Picking one previews it, and restoring loads it into the form.
+function History({ site, url, fields, titleField, onRestore }: { site: SiteDetail; url: string; fields: Field[]; titleField: string; onRestore?: (data: Data) => void }) {
+  const [commits, setCommits] = useState<Commit[] | null>(null);
+  const [selected, setSelected] = useState<Commit | null>(null);
+  const [version, setVersion] = useState<Data | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api<Commit[]>('GET', url)
+      .then(setCommits)
+      .catch((e) => setError(e.message));
+  }, [url]);
+
+  const open = (c: Commit) => {
+    setSelected(c);
+    setVersion(null);
+    setError('');
+    api<{ data: Data }>('GET', `${url}/${c.sha}`)
+      .then((v) => setVersion(v.data))
+      .catch((e) => setError(e.message));
+  };
+
+  if (selected) {
+    return (
+      <div>
+        <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-surface/95 px-6 py-3 backdrop-blur">
+          <button type="button" className="flex items-center gap-1 text-[13px] text-muted hover:text-ink" onClick={() => setSelected(null)}>
+            <Chevron dir="left" />
+            {t('History')}
+          </button>
+          <span className="min-w-0 flex-1 truncate text-[13px]">{t('Version of {date} by {author}', { date: formatDateTime(selected.date), author: selected.author })}</span>
+          {onRestore && (
+            <button type="button" className="btn btn-primary" disabled={!version} onClick={() => version && onRestore(version)} title={t('Loads this version in the form. Save it to keep it.')}>
+              {t('Restore')}
+            </button>
+          )}
+        </div>
+        {error && (
+          <div className="p-6">
+            <Notice>{error}</Notice>
+          </div>
+        )}
+        {version ? <Preview site={site} fields={fields} titleField={titleField} data={version} /> : !error && <Loading />}
+      </div>
+    );
+  }
+  return (
+    <div className="px-6 py-8">
+      <h2 className="mb-1">{t('History')}</h2>
+      <p className="mb-5 text-[13px] text-muted">{t('Every saved version of this entry. Open one to compare it with the preview, then restore it if needed.')}</p>
+      {error && <Notice>{error}</Notice>}
+      {!commits && !error && <Loading />}
+      {commits?.length === 0 && <Empty>{t('No version yet.')}</Empty>}
+      <ol className="panel divide-y divide-line">
+        {commits?.map((c, i) => (
+          <li key={c.sha}>
+            <button type="button" className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-canvas/60" onClick={() => open(c)}>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-medium">
+                  {formatDateTime(c.date)}
+                  {i === 0 && <span className="pill ml-2 bg-canvas text-muted ring-1 ring-line">{t('Latest')}</span>}
+                </span>
+                <span className="block truncate text-xs text-muted">
+                  {c.author}, {c.message}
+                </span>
+              </span>
+              <Chevron dir="right" />
+            </button>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }

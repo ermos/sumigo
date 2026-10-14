@@ -45,6 +45,7 @@ export interface Site {
   branch: string;
   workflow: 'direct' | 'pr';
   has_token: boolean;
+  ai_enabled: boolean;
   role?: Role;
   token?: string;
 }
@@ -52,6 +53,8 @@ export interface Site {
 export interface SiteDetail extends Site {
   config: Config | null;
   config_error?: string;
+  // ai is true when the assistant is on for the instance and this site.
+  ai: boolean;
 }
 
 export interface Pull {
@@ -61,6 +64,23 @@ export interface Pull {
   head: { ref: string };
   user: { login: string };
   updated_at: string;
+  scheduled_at?: string;
+}
+
+export interface Commit {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+export interface AISettings {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  base_url: string;
+  api_key?: string;
+  has_key: boolean;
 }
 
 export interface EntrySummary {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ermos/sumigo/internal/ai"
 	"github.com/ermos/sumigo/internal/github"
 	"github.com/ermos/sumigo/internal/store"
 )
@@ -35,6 +37,8 @@ type fakeGitHub struct {
 	bodies  []map[string]any
 	auth    string
 	graphql map[string]any
+	// pulls, when set, answers GET /pulls.
+	pulls string
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,10 +56,16 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"e0":{"text":"---\ntitle: Draft post\n---\n"}}}}`))
 	case r.Method == http.MethodGet && p == "/contents/sumigo.yml":
 		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(testConfig)), "sha": "c1"})
+	case r.Method == http.MethodGet && p == "/pulls" && f.pulls != "":
+		_, _ = w.Write([]byte(f.pulls))
 	case r.Method == http.MethodGet && p == "/pulls" && len(f.writes) > 0:
 		_, _ = w.Write([]byte(`[{"number":7,"head":{"ref":"cms/posts/hello-world"}}]`))
 	case r.Method == http.MethodGet && p == "/pulls":
 		_, _ = w.Write([]byte("[]"))
+	case r.Method == http.MethodGet && p == "/commits" && r.URL.Query().Get("path") == "content/posts/old.md":
+		_, _ = w.Write([]byte(`[{"sha":"` + strings.Repeat("a", 40) + `","commit":{"message":"content(posts): update old\n\nEdited by Jane via Sumigo","author":{"name":"Jane","date":"2026-10-01T09:00:00Z"}}}]`))
+	case r.Method == http.MethodGet && p == "/contents/content/posts/old.md" && r.URL.Query().Get("ref") == strings.Repeat("a", 40):
+		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte("---\ntitle: Old title\n---\nOld body\n"))})
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/git/ref/heads/"):
 		_, _ = w.Write([]byte(`{"object":{"sha":"base123"}}`))
 	case r.Method == http.MethodGet && p == "/contents/static/img":
@@ -191,7 +201,7 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	}
 }
 
-func TestMediaIsListedAndServedSafely(t *testing.T) {
+func TestMediaAndHistoryAreServed(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), "test-secret-key-123")
 	if err != nil {
 		t.Fatal(err)
@@ -242,9 +252,127 @@ func TestMediaIsListedAndServedSafely(t *testing.T) {
 		t.Fatal("uploaded files must be served sandboxed")
 	}
 
+	// History: versions of an entry, then one version's content to restore.
+	if _, body := get("/api/sites/1/collections/posts/entries/old/history"); !strings.Contains(body, `"message":"content(posts): update old","author":"Jane"`) {
+		t.Fatalf("history: %s", body)
+	}
+	if _, body := get("/api/sites/1/collections/posts/entries/old/history/" + strings.Repeat("a", 40)); !strings.Contains(body, `"title":"Old title"`) || !strings.Contains(body, "Old body") {
+		t.Fatalf("version: %s", body)
+	}
+
 	req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/sites/1/media/dog.png", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 	if res, err := http.DefaultClient.Do(req); err != nil || res.StatusCode != http.StatusForbidden {
 		t.Fatalf("viewer must not delete media: %v %v", err, res.StatusCode)
+	}
+}
+
+// newTestAPI wires the API to a fake GitHub and a fresh database.
+func newTestAPI(t *testing.T, gh http.Handler) (*API, *store.Store) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), "test-secret-key-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ghSrv := httptest.NewServer(gh)
+	t.Cleanup(ghSrv.Close)
+	return &API{Store: st, NewGitHub: func(token, repo string) *github.Client {
+		c := github.New(token, repo)
+		c.BaseURL = ghSrv.URL
+		return c
+	}}, st
+}
+
+func TestSchedulerPublishesDueDrafts(t *testing.T) {
+	gh := &fakeGitHub{pulls: `[{"number":7,"title":"content(posts): create hello","head":{"ref":"cms/posts/hello"}}]`}
+	a, st := newTestAPI(t, gh)
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "pr", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RolePublisher}}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for n, at := range map[int]time.Time{7: now.Add(-time.Minute), 8: now.Add(time.Hour)} {
+		if err := st.SetSchedule(store.Schedule{SiteID: site.ID, PullNumber: n, PublishAt: at, UserID: jane.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	a.publishDue(context.Background(), now)
+
+	want := []string{"PUT /pulls/7/merge", "DELETE /git/refs/heads/cms/posts/hello"}
+	if strings.Join(gh.writes, ",") != strings.Join(want, ",") {
+		t.Fatalf("writes = %v, want %v", gh.writes, want)
+	}
+	if title := gh.bodies[0]["commit_title"]; title != "content(posts): create hello (#7, scheduled by Jane)" {
+		t.Fatalf("merge title = %q", title)
+	}
+	left, _ := st.Schedules(site.ID)
+	if _, ok := left[7]; ok || len(left) != 1 {
+		t.Fatalf("schedules left = %v, want only #8", left)
+	}
+}
+
+func TestAIAssistantIsGatedAndKeepsTheKeySecret(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	var gotKey string
+	claude := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("x-api-key")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"A short description."}]}`))
+	}))
+	defer claude.Close()
+	a.NewAI = func(cfg ai.Config) *ai.Client {
+		cfg.BaseURL = claude.URL
+		return ai.New(cfg)
+	}
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	call := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+	assist := func() (int, string) {
+		return call(http.MethodPost, "/api/sites/1/collections/posts/ai", `{"action":"write","field":"title","data":{"body":"Hi"}}`)
+	}
+
+	if code, body := assist(); code != http.StatusForbidden || !strings.Contains(body, "ai_disabled") {
+		t.Fatalf("assistant must be off by default: %d %s", code, body)
+	}
+	if code, body := call(http.MethodPut, "/api/settings/ai", `{"enabled":true,"provider":"anthropic","api_key":"sk-ant-secret"}`); code != http.StatusOK || strings.Contains(body, "sk-ant") {
+		t.Fatalf("save settings: %d %s", code, body)
+	}
+	// Enabled for the instance but not for the site yet.
+	if code, _ := assist(); code != http.StatusForbidden {
+		t.Fatalf("site opt-in not enforced: %d", code)
+	}
+	site.AIEnabled = true
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := assist(); code != http.StatusOK || !strings.Contains(body, "A short description.") || gotKey != "sk-ant-secret" {
+		t.Fatalf("assist: %d %s (key %q)", code, body, gotKey)
 	}
 }

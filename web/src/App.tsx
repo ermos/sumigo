@@ -1,12 +1,12 @@
 import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
+import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation, useMatch, useOutletContext } from 'react-router-dom';
 import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
 import { Lang, lang, languages, setLang, t } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
 import { CollectionView, ContentLayout, MediaView, PullsView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
-import { SiteForm, SiteMembers, Users } from './Admin';
+import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, Users } from './Admin';
 
 export interface Ctx {
   me: User;
@@ -63,7 +63,12 @@ export default function App() {
           </Route>
           {me.is_admin && (
             <>
-              <Route path="admin/users" element={<Users />} />
+              <Route path="admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="users" replace />} />
+                <Route path="users" element={<Users />} />
+                <Route path="sites" element={<AdminSites />} />
+                <Route path="ai" element={<AISettingsPage />} />
+              </Route>
               <Route path="admin/sites/new" element={<SiteForm />} />
               <Route path="admin/sites/:siteId" element={<SiteForm />} />
               <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
@@ -93,9 +98,9 @@ export const useFocusMode = () => {
   return !!(edit || create);
 };
 
-export const Chevron = ({ dir = 'down' }: { dir?: 'down' | 'left' }) => (
+export const Chevron = ({ dir = 'down' }: { dir?: 'down' | 'left' | 'right' }) => (
   <svg viewBox="0 0 24 24" className="size-4 shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d={dir === 'down' ? 'm6 9 6 6 6-6' : 'm15 18-6-6 6-6'} />
+    <path d={{ down: 'm6 9 6 6 6-6', left: 'm15 18-6-6 6-6', right: 'm9 18 6-6-6-6' }[dir]} />
   </svg>
 );
 
@@ -194,8 +199,8 @@ function Layout({ me, sites, reloadSites, onLogout }: Ctx & { onLogout: () => vo
               </div>
               {me.is_admin && (
                 <div className="border-t border-line pt-1">
-                  <NavLink to="/admin/users" className={menuItem}>
-                    {t('Users')}
+                  <NavLink to="/admin" className={menuItem}>
+                    {t('Administration')}
                   </NavLink>
                 </div>
               )}

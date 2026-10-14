@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"mime"
@@ -170,6 +171,7 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 	for _, p := range pulls {
 		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
+	a.markScheduled(sc.site.ID, pulls)
 	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, col.Folder, extra)
 	if err != nil {
 		fail(w, err)
@@ -214,6 +216,7 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	if pr != nil {
 		ref = pr.Head.Ref
+		a.markScheduled(sc.site.ID, []github.Pull{*pr})
 	}
 	raw, _, err := sc.gh.GetFile(r.Context(), entryPath(col, slug), ref)
 	if err != nil {
@@ -250,7 +253,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Publish && sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
+	if in.Publish && !sc.canPublish() {
 		httpError(w, http.StatusForbidden, "publisher_only_draft", "only publishers can publish on this site, save a draft instead")
 		return
 	}
@@ -332,13 +335,16 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if in.Publish && viaDraft {
-		title := fmt.Sprintf("%s (#%d, published by %s)", pr.Title, pr.Number, sc.user.Name)
-		if err := sc.gh.MergePull(ctx, pr.Number, title); err != nil {
+		if err := a.publish(ctx, sc, pr, "published"); err != nil {
 			fail(w, err)
 			return
 		}
-		_ = sc.gh.DeleteBranch(ctx, branch)
 		pr = nil
+	}
+	if pr != nil {
+		pulls := []github.Pull{*pr}
+		a.markScheduled(sc.site.ID, pulls)
+		pr = &pulls[0]
 	}
 	writeJSON(w, map[string]any{"slug": slug, "draft": pr})
 }
@@ -590,6 +596,7 @@ func (a *API) listPulls(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	a.markScheduled(sc.site.ID, pulls)
 	writeJSON(w, pulls)
 }
 
@@ -598,29 +605,123 @@ func (a *API) mergePull(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if sc.site.Workflow == "pr" && !store.RoleAtLeast(sc.site.Role, store.RolePublisher) {
-		httpError(w, http.StatusForbidden, "publisher_only", "only publishers can publish on this site")
+	p, ok := a.publishablePull(w, r, sc)
+	if !ok {
 		return
 	}
+	if err := a.publish(r.Context(), sc, p, "published"); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// publishablePull checks the user can publish on the site and returns the CMS pull request {number}.
+func (a *API) publishablePull(w http.ResponseWriter, r *http.Request, sc *siteCtx) (*github.Pull, bool) {
+	if !sc.canPublish() {
+		httpError(w, http.StatusForbidden, "publisher_only", "only publishers can publish on this site")
+		return nil, false
+	}
 	n, _ := strconv.Atoi(r.PathValue("number"))
-	ctx := r.Context()
-	pulls, err := sc.gh.ListPulls(ctx, branchPrefix)
+	pulls, err := sc.gh.ListPulls(r.Context(), branchPrefix)
+	if err != nil {
+		fail(w, err)
+		return nil, false
+	}
+	for i := range pulls {
+		if pulls[i].Number == n {
+			return &pulls[i], true
+		}
+	}
+	httpError(w, http.StatusNotFound, "no_cms_pull", "no open CMS pull request with this number")
+	return nil, false
+}
+
+// canPublish: on a review site only publishers put entries live, editors save drafts for them.
+func (sc *siteCtx) canPublish() bool {
+	min := store.RoleEditor
+	if sc.site.Workflow == "pr" {
+		min = store.RolePublisher
+	}
+	return store.RoleAtLeast(sc.site.Role, min)
+}
+
+// publish squash-merges a draft pull request, deletes its branch and drops its schedule.
+// how ends up in the commit title: "published by Jane", "scheduled by Jane".
+func (a *API) publish(ctx context.Context, sc *siteCtx, p *github.Pull, how string) error {
+	title := fmt.Sprintf("%s (#%d, %s by %s)", p.Title, p.Number, how, sc.user.Name)
+	if err := sc.gh.MergePull(ctx, p.Number, title); err != nil {
+		return err
+	}
+	_ = sc.gh.DeleteBranch(ctx, p.Head.Ref)
+	return a.Store.DeleteSchedule(sc.site.ID, p.Number)
+}
+
+// markScheduled fills ScheduledAt on the pull requests that have a planned publication.
+func (a *API) markScheduled(siteID int64, pulls []github.Pull) {
+	// Display only: a read error just hides the dates, the scheduler still runs.
+	at, _ := a.Store.Schedules(siteID)
+	for i := range pulls {
+		if t, ok := at[pulls[i].Number]; ok {
+			pulls[i].ScheduledAt = &t
+		}
+	}
+}
+
+// entryHistory lists the commits that changed an entry, on its draft branch when it has one.
+func (a *API) entryHistory(w http.ResponseWriter, r *http.Request) {
+	sc, col, ok := a.collection(w, r, store.RoleViewer)
+	if !ok {
+		return
+	}
+	slug := r.PathValue("slug")
+	if !validSlug(slug) {
+		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
+		return
+	}
+	ref := sc.site.Branch
+	pr, err := sc.draft(r.Context(), branchPrefix+col.Name+"/"+slug)
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	for _, p := range pulls {
-		if p.Number != n {
-			continue
-		}
-		title := fmt.Sprintf("%s (#%d, published by %s)", p.Title, p.Number, sc.user.Name)
-		if err := sc.gh.MergePull(ctx, n, title); err != nil {
-			fail(w, err)
-			return
-		}
-		_ = sc.gh.DeleteBranch(ctx, p.Head.Ref)
-		w.WriteHeader(http.StatusNoContent)
+	if pr != nil {
+		ref = pr.Head.Ref
+	}
+	commits, err := sc.gh.ListCommits(r.Context(), entryPath(col, slug), ref)
+	if err != nil {
+		fail(w, err)
 		return
 	}
-	httpError(w, http.StatusNotFound, "no_cms_pull", "no open CMS pull request with this number")
+	writeJSON(w, commits)
+}
+
+// entryVersion returns an entry as it was at a commit, to preview or restore it.
+func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
+	sc, col, ok := a.collection(w, r, store.RoleViewer)
+	if !ok {
+		return
+	}
+	slug, sha := r.PathValue("slug"), r.PathValue("sha")
+	if !validSlug(slug) || !isHex(sha) {
+		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
+		return
+	}
+	raw, _, err := sc.gh.GetFile(r.Context(), entryPath(col, slug), sha)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	data, body, err := content.Parse(raw)
+	if err != nil {
+		httpError(w, http.StatusUnprocessableEntity, "front_matter", "cannot parse front matter: "+err.Error(), params{"detail": err.Error()})
+		return
+	}
+	data[content.BodyField] = body
+	writeJSON(w, map[string]any{"data": data})
+}
+
+func isHex(s string) bool {
+	_, err := hex.DecodeString(s)
+	return len(s) == 40 && err == nil
 }

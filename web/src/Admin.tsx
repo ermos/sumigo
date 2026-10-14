@@ -1,10 +1,10 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Access, api, Role, Site, User } from './api';
-import { roleNames, useCtx } from './App';
+import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { Access, AISettings, api, Role, Site, User } from './api';
+import { Monogram, roleNames, useCtx } from './App';
 import { t } from './i18n';
 import { Pending, useAction } from './ui';
-import { Notice } from './Site';
+import { Empty, Notice } from './Site';
 
 const emptySite: Site = {
   id: 0,
@@ -13,6 +13,7 @@ const emptySite: Site = {
   branch: 'main',
   workflow: 'direct',
   has_token: false,
+  ai_enabled: false,
 };
 
 // tokenURL opens GitHub's fine-grained token form with owner and permissions prefilled.
@@ -89,6 +90,7 @@ export function SiteForm() {
     navigate('/');
   };
 
+  const aiHint = t('Suggests field values and proofreads articles. It must also be turned on in {link}.').split('{link}');
   const repoHint = t('(permissions are prefilled, select only {repo} under "Repository access").').split('{repo}');
 
   return (
@@ -149,6 +151,19 @@ export function SiteForm() {
               <option value="direct">{t('Open: editors can publish, or save drafts')}</option>
               <option value="pr">{t('Review: editors save drafts, only publishers publish them')}</option>
             </select>
+          </label>
+          <label className="flex items-start gap-2 text-[13px] font-medium">
+            <input className="mt-0.5 size-4 accent-accent" type="checkbox" checked={site.ai_enabled} onChange={(e) => setSite({ ...site, ai_enabled: e.target.checked })} />
+            <span>
+              {t('AI assistant')}
+              <span className="block font-normal text-muted">
+                {aiHint[0]}
+                <Link to="/admin/ai" className="text-accent hover:underline">
+                  {t('AI assistant settings')}
+                </Link>
+                {aiHint[1]}
+              </span>
+            </span>
           </label>
           {error && <Notice>{error}</Notice>}
           {status && <Notice tone="ok">{status}</Notice>}
@@ -211,7 +226,7 @@ export function Users() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="max-w-3xl">
       <div className="mb-6 flex items-center justify-between gap-3">
         <div>
           <h1>{t('Users')}</h1>
@@ -379,6 +394,203 @@ export function SiteMembers() {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Each provider: its key and model pages, and the models offered in a list (others take a typed model id).
+const providers: Record<string, { name: string; keys?: string; models?: string; choices?: string[] }> = {
+  anthropic: { name: 'Anthropic (Claude)', keys: 'https://console.anthropic.com/settings/keys', choices: ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'] },
+  openai: { name: 'OpenAI', keys: 'https://platform.openai.com/api-keys', models: 'https://platform.openai.com/docs/models' },
+  mistral: { name: 'Mistral AI', keys: 'https://console.mistral.ai/api-keys', models: 'https://docs.mistral.ai/getting-started/models/' },
+  gemini: { name: 'Google Gemini', keys: 'https://aistudio.google.com/apikey', models: 'https://ai.google.dev/gemini-api/docs/models' },
+  openrouter: { name: 'OpenRouter', keys: 'https://openrouter.ai/keys', models: 'https://openrouter.ai/models' },
+  custom: { name: '' },
+};
+
+// AISettingsPage sets the assistant up for the whole instance. Each site then opts in from its settings.
+export function AISettingsPage() {
+  const { sites } = useCtx();
+  const [run, pending] = useAction();
+  const [ai, setAI] = useState<AISettings | null>(null);
+  const [saved, setSaved] = useState<AISettings | null>(null);
+  const [error, setError] = useState('');
+  const [status, setStatus] = useState('');
+
+  const load = (s: AISettings) => {
+    setSaved(s);
+    setAI({ ...s, model: s.model || (providers[s.provider]?.choices?.[0] ?? ''), api_key: '' });
+  };
+  useEffect(() => {
+    api<AISettings>('GET', '/settings/ai')
+      .then(load)
+      .catch((e) => setError(e.message));
+  }, []);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setStatus('');
+    try {
+      load(await api<AISettings>('PUT', '/settings/ai', ai));
+      setStatus(t('Saved'));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  if (!ai) return error ? <Notice>{error}</Notice> : null;
+  const p = providers[ai.provider] ?? providers.custom;
+  // The saved key belongs to the saved provider: switching provider asks for a new one.
+  const keyKept = saved?.has_key && saved.provider === ai.provider;
+  const setProvider = (provider: string) => setAI({ ...ai, provider, model: providers[provider]?.choices?.[0] ?? '', base_url: '' });
+  const enabledSites = sites.filter((s) => s.ai_enabled);
+  return (
+    <div className="max-w-3xl">
+      <div className="mb-6">
+        <h1>{t('AI assistant')}</h1>
+        <p className="text-muted">{t('The assistant suggests titles and descriptions and proofreads articles, from the editor. The API key stays on the server.')}</p>
+      </div>
+      <form className="panel" onSubmit={(e) => run('save', () => save(e))}>
+        <div className="flex flex-col gap-5 p-6">
+          <label className="flex items-center gap-2 text-[13px] font-medium">
+            <input className="size-4 accent-accent" type="checkbox" checked={ai.enabled} onChange={(e) => setAI({ ...ai, enabled: e.target.checked })} />
+            {t('Enable the AI assistant')}
+          </label>
+          <label className="label">
+            {t('Provider')}
+            <select className="field" value={ai.provider} onChange={(e) => setProvider(e.target.value)}>
+              {Object.entries(providers).map(([id, v]) => (
+                <option key={id} value={id}>
+                  {v.name || t('Other (OpenAI-compatible API, Ollama…)')}
+                </option>
+              ))}
+            </select>
+          </label>
+          {ai.provider === 'custom' && (
+            <label className="label">
+              {t('API URL')}
+              <input className="field font-mono" value={ai.base_url} onChange={(e) => setAI({ ...ai, base_url: e.target.value })} placeholder="http://localhost:11434/v1" required={ai.enabled} />
+              <span className="text-xs font-normal text-muted">{t('The address the /chat/completions route is under.')}</span>
+            </label>
+          )}
+          <label className="label">
+            <span>
+              {t('API key')} {keyKept && <span className="font-normal text-muted">{t('(already set, leave empty to keep it)')}</span>}
+              {ai.provider === 'custom' && <span className="font-normal text-muted"> {t('(optional)')}</span>}
+            </span>
+            <input className="field font-mono" type="password" value={ai.api_key ?? ''} onChange={(e) => setAI({ ...ai, api_key: e.target.value })} autoComplete="off" />
+            {p.keys && (
+              <a href={p.keys} target="_blank" rel="noreferrer" className="text-xs font-normal text-accent hover:underline">
+                {t('Create a key on {provider}', { provider: p.name })}
+              </a>
+            )}
+          </label>
+          <label className="label">
+            {t('Model')}
+            {p.choices ? (
+              <select className="field" value={ai.model} onChange={(e) => setAI({ ...ai, model: e.target.value })}>
+                {p.choices.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input className="field font-mono" value={ai.model} onChange={(e) => setAI({ ...ai, model: e.target.value })} required={ai.enabled} />
+                {p.models && (
+                  <a href={p.models} target="_blank" rel="noreferrer" className="text-xs font-normal text-accent hover:underline">
+                    {t('See the model ids of {provider}', { provider: p.name })}
+                  </a>
+                )}
+              </>
+            )}
+          </label>
+          <div className="text-[13px]">
+            <h3 className="font-medium">{t('Sites')}</h3>
+            <p className="text-muted">{enabledSites.length ? enabledSites.map((s) => s.name).join(', ') : t('No site uses it yet. Turn it on in the settings of each site.')}</p>
+          </div>
+          {error && <Notice>{error}</Notice>}
+          {status && <Notice tone="ok">{status}</Notice>}
+        </div>
+        <div className="flex justify-end border-t border-line bg-canvas/60 px-6 py-3">
+          <button className="btn btn-primary" disabled={!!pending}>
+            <Pending on={!!pending}>{t(pending ? 'Saving…' : 'Save changes')}</Pending>
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const adminLink = ({ isActive }: { isActive: boolean }) =>
+  `rounded-md px-2.5 py-1.5 text-[13px] transition-colors ${isActive ? 'bg-surface font-medium text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`;
+
+// AdminLayout groups the instance-wide settings, next to a sidebar like the content pages.
+export function AdminLayout() {
+  const ctx = useCtx();
+  return (
+    <div className="flex flex-col gap-8 md:flex-row">
+      <aside className="shrink-0 md:w-52">
+        <nav className="flex flex-col gap-0.5">
+          <p className="px-2.5 pb-1 text-xs font-medium text-muted">{t('Administration')}</p>
+          <NavLink to="/admin/users" className={adminLink}>
+            {t('Users')}
+          </NavLink>
+          <NavLink to="/admin/sites" end className={adminLink}>
+            {t('Sites')}
+          </NavLink>
+          <NavLink to="/admin/ai" className={adminLink}>
+            {t('AI assistant')}
+          </NavLink>
+        </nav>
+      </aside>
+      <div className="min-w-0 flex-1">
+        <Outlet context={ctx} />
+      </div>
+    </div>
+  );
+}
+
+// AdminSites lists every site with shortcuts to its members and settings.
+export function AdminSites() {
+  const { sites } = useCtx();
+  return (
+    <div className="max-w-3xl">
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <div>
+          <h1>{t('Sites')}</h1>
+          <p className="text-muted">{t('Every site of this instance. Admins see them all.')}</p>
+        </div>
+        <Link to="/admin/sites/new" className="btn btn-primary">
+          {t('Add a site')}
+        </Link>
+      </div>
+      {sites.length === 0 ? (
+        <Empty>{t('No site yet.')}</Empty>
+      ) : (
+        <ul className="panel divide-y divide-line">
+          {sites.map((s) => (
+            <li key={s.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
+              <Monogram name={s.name} />
+              <Link to={`/sites/${s.id}`} className="font-medium hover:text-accent">
+                {s.name}
+              </Link>
+              <span className="font-mono text-xs text-muted">{s.repo}</span>
+              {s.ai_enabled && <span className="pill bg-accent-soft text-accent">{t('AI assistant')}</span>}
+              <span className="ml-auto space-x-4 text-[13px] font-medium">
+                <Link to={`/admin/sites/${s.id}/members`} className="text-accent hover:underline">
+                  {t('Members')}
+                </Link>
+                <Link to={`/admin/sites/${s.id}`} className="text-accent hover:underline">
+                  {t('Settings')}
+                </Link>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
