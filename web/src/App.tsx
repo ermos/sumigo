@@ -4,11 +4,11 @@ import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
 import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
-import { CollectionView, ContentLayout, Loading, MediaView, PullsView, SetupView, SiteHome, SiteLayout } from './Site';
+import { CollectionView, ContentLayout, Loading, MediaView, PullsView, SettingsLayout, SetupView, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 // The sumigo.yml editor brings CodeMirror: loaded only when opened.
 const ConfigEditor = lazy(() => import('./ConfigEditor'));
-import { AdminLayout, AdminSites, AISettingsPage, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
+import { AdminLayout, AdminSites, AISettingsPage, SiteDomains, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
 
 export interface Ctx {
   me: User;
@@ -72,6 +72,19 @@ export default function App() {
             <Route path="workflow" element={<PullsView />} />
             <Route path="media" element={<MediaView />} />
             <Route path="setup" element={<SetupView />} />
+            <Route path="settings" element={<SettingsLayout />}>
+              <Route index element={<SiteForm />} />
+              <Route path="domains" element={<SiteDomains />} />
+              <Route path="members" element={<SiteMembers />} />
+              <Route
+                path="config"
+                element={
+                  <Suspense fallback={null}>
+                    <ConfigEditor />
+                  </Suspense>
+                }
+              />
+            </Route>
             <Route path="c/:col/new" element={<Editor />} />
             <Route path="c/:col/e/:slug" element={<Editor />} />
           </Route>
@@ -85,16 +98,6 @@ export default function App() {
                 <Route path="sso" element={<SSOSettingsPage />} />
               </Route>
               <Route path="admin/sites/new" element={<SiteForm />} />
-              <Route path="admin/sites/:siteId" element={<SiteForm />} />
-              <Route path="admin/sites/:siteId/members" element={<SiteMembers />} />
-              <Route
-                path="admin/sites/:siteId/config"
-                element={
-                  <Suspense fallback={<Loading />}>
-                    <ConfigEditor />
-                  </Suspense>
-                }
-              />
             </>
           )}
           <Route path="*" element={<p className="text-muted">{t('Page not found.')}</p>} />
@@ -133,7 +136,7 @@ const topLink = (active: boolean) => `rounded-md px-3 py-1.5 text-[13px] font-me
 function Layout({ me, sites, reloadSites, setMe, onLogout }: Ctx & { onLogout: () => void }) {
   const focus = useFocusMode();
   const { pathname } = useLocation();
-  const current = sites.find((s) => pathname.startsWith(`/sites/${s.id}/`) || pathname === `/sites/${s.id}` || pathname === `/admin/sites/${s.id}` || pathname.startsWith(`/admin/sites/${s.id}/`));
+  const current = sites.find((s) => pathname.startsWith(`/sites/${s.id}/`) || pathname === `/sites/${s.id}`);
   const ctx = { me, sites, reloadSites, setMe } satisfies Ctx;
   const logout = async () => {
     await api('POST', '/logout');

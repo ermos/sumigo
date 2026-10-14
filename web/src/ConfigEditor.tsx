@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { basicSetup, EditorView } from 'codemirror';
 import { keymap } from '@codemirror/view';
 import { indentWithTab } from '@codemirror/commands';
@@ -8,7 +8,7 @@ import { Completion, CompletionContext, CompletionResult } from '@codemirror/aut
 import { Diagnostic, linter } from '@codemirror/lint';
 import { api, HttpError } from './api';
 import { useCtx } from './App';
-import { Loading, Notice } from './Site';
+import { Loading, Notice, PageHeader } from './Site';
 import { Pending } from './ui';
 import { suggest } from './yamlcomplete';
 import { t } from './i18n';
@@ -26,8 +26,7 @@ function complete(ctx: CompletionContext): CompletionResult | null {
 // ConfigEditor edits sumigo.yml with highlighting, completion, and the server check underlining errors as you type.
 export default function ConfigEditor() {
   const { siteId } = useParams();
-  const { sites, reloadSites } = useCtx();
-  const site = sites.find((s) => String(s.id) === siteId);
+  const { reloadSites } = useCtx();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const sha = useRef('');
@@ -100,23 +99,17 @@ export default function ConfigEditor() {
   return (
     <div className="max-w-5xl">
       {/* Sticky under the app header (h-14), so saving stays at hand at the bottom of a long file. */}
-      <div className="sticky top-14 z-10 -mt-3 mb-3 flex flex-wrap items-center gap-3 bg-canvas py-3">
-        <div className="mr-auto">
-          {site && (
-            <Link to={`/admin/sites/${site.id}`} className="text-[13px] text-muted hover:text-accent">
-              {t('Back to {name}', { name: site.name })}
-            </Link>
-          )}
-          <h1>sumigo.yml</h1>
-        </div>
-        <a href="https://github.com/ermos/sumigo/blob/main/docs/sumigo-yml.md" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
-          {t('sumigo.yml reference')}
-        </a>
-        <button type="button" className="btn btn-primary" onClick={save} disabled={!loaded || saving} title="Cmd+S / Ctrl+S">
-          <Pending on={saving}>{t(saving ? 'Committing…' : 'Save and commit')}</Pending>
-        </button>
+      <div className="sticky top-14 z-10 -mt-3 bg-canvas pt-3">
+        <PageHeader title="sumigo.yml">
+          <a href="https://github.com/ermos/sumigo/blob/main/docs/sumigo-yml.md" target="_blank" rel="noreferrer" className="text-[13px] text-accent hover:underline">
+            {t('sumigo.yml reference')}
+          </a>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={!loaded || saving} title="Cmd+S / Ctrl+S">
+            <Pending on={saving}>{t(saving ? 'Committing…' : 'Save and commit')}</Pending>
+          </button>
+        </PageHeader>
         {(error || status) && (
-          <div className="w-full">
+          <div className="-mt-2 mb-3">
             <Notice tone={error ? 'danger' : 'ok'}>{error || status}</Notice>
           </div>
         )}
