@@ -283,7 +283,7 @@ export function Users() {
   const edit = (u: User | null) => {
     setError('');
     setCreated(null);
-    setEditing(u ? { ...u, password: '', temporary: false } : { id: 0, email: '', name: '', is_admin: false, password: '', temporary: true });
+    setEditing(u ? { ...u, password: '', temporary: false } : { id: 0, email: '', name: '', first_name: '', last_name: '', is_admin: false, password: '', temporary: true });
   };
 
   const [ask, confirmDialog] = useConfirm();
@@ -316,17 +316,21 @@ export function Users() {
       )}
       {editing && (
         <form className="panel mb-6 flex flex-col gap-5 p-6" onSubmit={(e) => run('save', () => save(e))}>
-          <h2>{editing.id ? t('Edit {name}', { name: editing.name }) : t('New user')}</h2>
+          <h2>{editing.id ? t('Edit {name}', { name: `${editing.first_name} ${editing.last_name}`.trim() }) : t('New user')}</h2>
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="label">
-              {t('Name')}
-              <input className="field" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} required />
+              {t('First name')}
+              <input className="field" value={editing.first_name} onChange={(e) => setEditing({ ...editing, first_name: e.target.value })} required autoComplete="off" />
             </label>
             <label className="label">
-              {t('Email')}
-              <input className="field" type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required />
+              {t('Last name')}
+              <input className="field" value={editing.last_name} onChange={(e) => setEditing({ ...editing, last_name: e.target.value })} autoComplete="off" />
             </label>
           </div>
+          <label className="label">
+            {t('Email')}
+            <input className="field" type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} required />
+          </label>
           <label className="flex items-center gap-2 text-[13px] font-medium">
             <input className="size-4 accent-accent" type="checkbox" checked={editing.temporary} onChange={(e) => setEditing({ ...editing, temporary: e.target.checked, password: '' })} />
             {t(editing.id ? 'Reset with a temporary password' : 'Temporary password')}

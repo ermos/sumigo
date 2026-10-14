@@ -5,7 +5,10 @@ export type Role = 'viewer' | 'editor' | 'publisher';
 export interface User {
   id: number;
   email: string;
+  // name is "first_name last_name", it signs the commits.
   name: string;
+  first_name: string;
+  last_name: string;
   is_admin: boolean;
   // must_change_password: logged in with a temporary password, a new one must be chosen first.
   must_change_password?: boolean;

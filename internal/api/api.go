@@ -258,8 +258,9 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 		in.Password = temporaryPassword()
 	}
 	u.Email = strings.TrimSpace(u.Email)
-	if u.Email == "" || u.Name == "" {
-		httpError(w, http.StatusBadRequest, "email_name_required", "email and name are required")
+	u.Name = "" // derived from the first and last names
+	if u.Email == "" || strings.TrimSpace(u.FirstName) == "" {
+		httpError(w, http.StatusBadRequest, "email_name_required", "email and first name are required")
 		return
 	}
 	var err error
@@ -300,16 +301,19 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 
 // saveMe renames the logged in user: the name signs their commits. Email and role stay with the admins.
 func (a *API) saveMe(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name string }
+	var in struct {
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	u := userFrom(r)
-	u.Name = strings.TrimSpace(in.Name)
-	if u.Name == "" {
-		httpError(w, http.StatusBadRequest, "email_name_required", "email and name are required")
+	if strings.TrimSpace(in.FirstName) == "" {
+		httpError(w, http.StatusBadRequest, "email_name_required", "email and first name are required")
 		return
 	}
+	u := userFrom(r)
+	u.FirstName, u.LastName = in.FirstName, in.LastName
 	if err := a.Store.UpdateUser(u, ""); err != nil {
 		fail(w, err)
 		return
