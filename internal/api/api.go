@@ -36,6 +36,9 @@ type API struct {
 
 	configs   sync.Map // site ID -> cachedConfig
 	providers sync.Map // OIDC issuer -> *oidc.Provider
+
+	setupMu   sync.Mutex
+	setupCode string // set while the instance has no user, see PrepareSetup
 }
 
 type ctxKey struct{}
@@ -47,6 +50,8 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/login", a.login)
 	mux.HandleFunc("POST /api/logout", a.logout)
+	mux.HandleFunc("GET /api/setup", a.setupStatus)
+	mux.HandleFunc("POST /api/setup", a.setup)
 	mux.HandleFunc("GET /api/auth/config", a.authConfig)
 	mux.HandleFunc("GET /api/auth/oidc", a.oidcLogin)
 	mux.HandleFunc("GET /api/auth/oidc/callback", a.oidcCallback)

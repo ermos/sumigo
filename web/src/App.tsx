@@ -37,17 +37,24 @@ export default function App() {
       .catch(() => setSites([]));
   }, []);
 
+  // needsSetup: no user yet, the first account is created with the setup code of the server logs.
+  const [needsSetup, setNeedsSetup] = useState<boolean | undefined>(undefined);
+
   useEffect(() => {
     api<User>('GET', '/me')
       .then(setMe)
       .catch(() => setMe(null));
+    api<{ needed: boolean }>('GET', '/setup')
+      .then((s) => setNeedsSetup(s.needed))
+      .catch(() => setNeedsSetup(false));
   }, []);
   useEffect(() => {
     if (me) reloadSites();
   }, [me, reloadSites]);
 
   if (me === undefined) return null;
-  if (me === null) return <Login onLogin={setMe} />;
+  if (me === null && needsSetup === undefined) return null;
+  if (me === null) return needsSetup ? <Setup onDone={setMe} /> : <Login onLogin={setMe} />;
   if (me.must_change_password) return <ChoosePassword me={me} onDone={setMe} onLogout={() => setMe(null)} />;
 
   return (
@@ -368,6 +375,61 @@ function Account() {
         <button className="btn btn-primary self-end" disabled={!!pending}>
           <Pending on={pending === 'password'}>{t('Change the password')}</Pending>
         </button>
+      </form>
+    </div>
+  );
+}
+
+// Setup creates the first account of the instance, an admin, with the setup code printed in the server logs.
+function Setup({ onDone }: { onDone: (u: User) => void }) {
+  const [form, setForm] = useState({ code: '', first_name: '', last_name: '', email: '', password: '' });
+  const [run, pending] = useAction();
+  const [error, setError] = useState('');
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    try {
+      onDone(await api<User>('POST', '/setup', form));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+  return (
+    <div className="grid min-h-screen place-items-center px-4">
+      <form className="w-full max-w-md" onSubmit={(e) => run('setup', () => submit(e))}>
+        <div className="mb-6 flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <span className="size-3 rounded-full bg-accent" />
+          Sumigo
+        </div>
+        <div className="panel flex flex-col gap-4 p-6 shadow-sm">
+          <h1 className="text-xl">{t('Set up Sumigo')}</h1>
+          <label className="label">
+            {t('Setup code')}
+            <input className="field font-mono" value={form.code} onChange={set('code')} placeholder={t('Printed in the server logs')} required autoFocus autoComplete="off" spellCheck={false} />
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="label">
+              {t('First name')}
+              <input className="field" value={form.first_name} onChange={set('first_name')} required autoComplete="given-name" />
+            </label>
+            <label className="label">
+              {t('Last name')}
+              <input className="field" value={form.last_name} onChange={set('last_name')} autoComplete="family-name" />
+            </label>
+          </div>
+          <label className="label">
+            {t('Email')}
+            <input className="field" type="email" value={form.email} onChange={set('email')} required autoComplete="email" />
+          </label>
+          <label className="label">
+            {t('Password')}
+            <input className="field" type="password" value={form.password} onChange={set('password')} minLength={8} required autoComplete="new-password" />
+          </label>
+          {error && <p className="text-[13px] text-danger">{error}</p>}
+          <button className="btn btn-primary py-2" disabled={!!pending}>
+            <Pending on={!!pending}>{t('Create the admin account')}</Pending>
+          </button>
+        </div>
       </form>
     </div>
   );

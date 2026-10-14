@@ -35,11 +35,10 @@ func main() {
 	}
 	defer func() { _ = st.Close() }()
 
-	if err := bootstrapAdmin(st); err != nil {
+	a := &api.API{Store: st, NewForge: forge.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
+	if err := a.PrepareSetup(); err != nil {
 		log.Fatal(err)
 	}
-
-	a := &api.API{Store: st, NewForge: forge.New, NewAI: ai.New, SecureCookie: os.Getenv("SECURE_COOKIE") == "true"}
 	mux := http.NewServeMux()
 	mux.Handle("/api/", a.Handler())
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
@@ -59,18 +58,4 @@ func main() {
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
-}
-
-// bootstrapAdmin creates the first admin from ADMIN_EMAIL / ADMIN_PASSWORD when no user exists.
-func bootstrapAdmin(st *store.Store) error {
-	n, err := st.CountUsers()
-	if err != nil || n > 0 {
-		return err
-	}
-	email, password := os.Getenv("ADMIN_EMAIL"), os.Getenv("ADMIN_PASSWORD")
-	if email == "" || len(password) < 8 {
-		return errors.New("no user yet: set ADMIN_EMAIL and ADMIN_PASSWORD (8+ chars) to create the first admin")
-	}
-	log.Printf("creating admin %s", email)
-	return st.CreateUser(&store.User{Email: email, Name: env("ADMIN_NAME", "Admin"), IsAdmin: true}, password)
 }

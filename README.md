@@ -18,10 +18,18 @@ Self-hosted, multi-site Git CMS in the spirit of Decap CMS. One instance manages
 ## Run
 
 ```bash
-cp .env.example .env   # set SECRET_KEY, ADMIN_EMAIL, ADMIN_PASSWORD
+cp .env.example .env   # set SECRET_KEY
 make build-web
 set -a; . ./.env; set +a; ./bin/sumigo
 ```
+
+On the first start, with no user yet, the server logs a setup code:
+
+```
+no user yet: open the web app and enter this setup code to create the admin account: 3f2b9c1e-…
+```
+
+Open the web app, enter that code, and create your account: it is the admin. The code only lives in memory (a restart prints a new one) and stops working once the admin exists.
 
 Or with Docker: `make docker && docker run -p 8080:8080 --env-file .env -v sumigo:/data sumigo`.
 
