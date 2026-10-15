@@ -260,6 +260,13 @@ func (c *Collection) checkFiles() error {
 		if c.Files[i].File == "" || strings.Contains("/"+c.Files[i].File+"/", "/../") {
 			return fmt.Errorf("file %s needs a file path in the repository", f.Name)
 		}
+		// Sent as [] rather than null: the UI lists the fields of every collection and file.
+		if f.Fields == nil {
+			c.Files[i].Fields = []Field{}
+		}
+	}
+	if c.Fields == nil {
+		c.Fields = []Field{}
 	}
 	no := false
 	c.Create = &no

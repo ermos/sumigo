@@ -1,6 +1,7 @@
 package content
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -119,6 +120,9 @@ func TestFilesCollectionsResolveTheirFiles(t *testing.T) {
 	c := cfg.Collections[0]
 	if e, ok := c.Entry("home"); !ok || c.Path("home", "") != "src/pages/home.md" || len(e.Fields) != 1 || *c.Create {
 		t.Fatalf("files collection: %+v", c)
+	}
+	if b, _ := json.Marshal(c); !strings.Contains(string(b), `"fields":[]`) {
+		t.Fatalf("a files collection without fields of its own must send [], not null: %s", b)
 	}
 	if _, ok := c.Entry("nope"); ok {
 		t.Fatal("unknown file resolved")
