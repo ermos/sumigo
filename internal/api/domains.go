@@ -87,17 +87,20 @@ func (a *API) currentDomain(w http.ResponseWriter, r *http.Request) {
 
 // cors lets the declared domains call the API from another origin. Read from the database on each
 // request, so a domain added or removed in the admin applies right away.
+// Any other origin is refused writes: SameSite=Strict lets sibling subdomains (the published site
+// next to the CMS) send the session cookie, and a text/plain form posts JSON without a preflight.
 func (a *API) cors(next http.Handler) http.Handler {
+	protected := http.NewCrossOriginProtection().Handler(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		u, err := url.Parse(origin)
 		if origin == "" || err != nil || normalizeHost(u.Host) == normalizeHost(r.Host) {
-			next.ServeHTTP(w, r)
+			protected.ServeHTTP(w, r)
 			return
 		}
 		w.Header().Add("Vary", "Origin")
 		if _, err := a.Store.DomainSite(normalizeHost(u.Host)); err != nil {
-			next.ServeHTTP(w, r) // the browser blocks the response without the headers below
+			protected.ServeHTTP(w, r) // the browser blocks the response without the headers below
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
