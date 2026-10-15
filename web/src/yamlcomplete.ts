@@ -42,7 +42,7 @@ export const keys: Record<string, Record<string, string>> = {
     slug: 'Check the focus keyword in the URL',
   },
 };
-const widgets = ['string', 'text', 'markdown', 'date', 'datetime', 'boolean', 'number', 'select', 'list', 'image', 'hidden', 'object', 'relation'];
+export const widgets = ['string', 'text', 'markdown', 'date', 'datetime', 'boolean', 'number', 'select', 'list', 'image', 'hidden', 'object', 'relation'];
 const booleans = ['required', 'create', 'slug', 'multiple'];
 
 const indentOf = (line: string) => line.length - line.trimStart().replace(/^-\s*/, '').length;
