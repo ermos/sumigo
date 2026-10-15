@@ -1,8 +1,8 @@
-import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
+import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, fieldI18n, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, Collection, Commit, Entry, entryCollection, forgeNames, HttpError, EntrySummary, Field, fieldI18n, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, fetchEntries, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Icon, icons, Pending, Spinner } from './ui';
 import { getCached, setCached, useCached } from './cache';
@@ -17,7 +17,9 @@ export default function Editor() {
   const site = useSite();
   const { col, slug } = useParams();
   const navigate = useNavigate();
-  const collection = site.config?.collections.find((c) => c.name === col);
+  const found = site.config?.collections.find((c) => c.name === col);
+  // Memoized: the entry load below depends on it.
+  const collection = useMemo(() => found && entryCollection(found, slug), [found, slug]);
   const listKey = entriesKey(site.id, col);
   // ?locale= opens a translation; '' is the default locale, the one the collection list holds.
   const [params, setParams] = useSearchParams();
@@ -217,7 +219,7 @@ export default function Editor() {
   };
   const assist =
     site.ai && !readOnly
-      ? async (f: Field, action: 'write' | 'proofread', brief?: string) => (await api<{ text: string }>('POST', `/sites/${site.id}/collections/${col}/ai`, { action, field: f.name, data, brief })).text
+      ? async (f: Field, action: 'write' | 'proofread', brief?: string) => (await api<{ text: string }>('POST', `/sites/${site.id}/collections/${col}/ai?slug=${encodeURIComponent(slug ?? '')}`, { action, field: f.name, data, brief })).text
       : undefined;
   const field = (f: Field) => <FieldInput key={f.name} site={site} field={f} value={data?.[f.name]} readOnly={readOnly} onChange={change(f.name)} assist={assist} />;
 
@@ -316,7 +318,7 @@ export default function Editor() {
               ),
           )}
         </div>
-        {slug && (canPublish || (draft && !readOnly)) && (
+        {slug && ((canPublish && !collection.files) || (draft && !readOnly)) && (
           <button type="button" className="btn btn-danger" onClick={() => deleteDialog.current?.showModal()} disabled={!!busy}>
             {t('Delete')}
           </button>
@@ -333,7 +335,7 @@ export default function Editor() {
                   <Pending on={busy === 'discard'}>{t('Discard draft')}</Pending>
                 </button>
               )}
-              {canPublish && (
+              {canPublish && !collection.files && (
                 <button type="button" className="btn btn-danger" onClick={() => remove(false)} disabled={!!busy}>
                   <Pending on={busy === 'delete'}>{t(busy === 'delete' ? 'Deleting…' : 'Delete entry')}</Pending>
                 </button>

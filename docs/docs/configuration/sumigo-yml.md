@@ -70,13 +70,14 @@ Uploads are committed directly to the site branch, even when the site uses the p
 
 ## Collections
 
-A collection is a folder of Markdown files that all share the same fields.
+A collection is a folder of Markdown files that all share the same fields, or a list of [fixed files](#files-collections) with their own fields.
 
 | Key | Required | Default | Description |
 |---|---|---|---|
 | `name` | yes | none | Unique identifier, used in URLs and branch names. No `/`. |
 | `label` | no | `name` | Name shown in the UI. |
-| `folder` | yes | none | Repository folder holding the entries, e.g. `content/posts`. Collections without `folder` are ignored. |
+| `folder` | yes, or `files` | none | Repository folder holding the entries, e.g. `content/posts`. Collections with neither `folder` nor `files` are ignored. |
+| `files` | yes, or `folder` | none | Fixed files edited one by one, see [Files collections](#files-collections). |
 | `extension` | no | `md` | File extension of entries. |
 | `slug` | no | `{{slug}}` | Template of the file name for new entries, see [Slugs](#slugs). |
 | `identifier_field` | no | `title` | Field used as the entry title in lists and as `{{slug}}`. |
@@ -89,6 +90,40 @@ A collection is a folder of Markdown files that all share the same fields.
 Only files directly in `folder` with the right extension are listed. Subfolders are not read.
 
 Each entry is stored at `<folder>/<slug>.<extension>`.
+
+### Files collections
+
+A collection with `files` instead of `folder` lists fixed files, each with its own fields. It fits content that exists once: the texts of a home page, an about page, the site settings. The layout stays in the site code, which reads the texts from these files, so editors change the words without being able to break the page.
+
+```yaml
+collections:
+  - name: pages
+    label: Pages
+    files:
+      - name: home
+        label: Home page
+        file: src/content/pages/home.md
+        fields:
+          - { name: title, label: Title, widget: string }
+          - { name: lede, label: Introduction, widget: text }
+      - name: about
+        label: About
+        file: src/content/pages/about.md
+        fields:
+          - { name: intro, label: Introduction, widget: text }
+          - { name: body, label: Content, widget: markdown }
+```
+
+| Key | Required | Description |
+|---|---|---|
+| `name` | yes | Unique identifier of the file, used in URLs and branch names. No `/`. |
+| `label` | no | Name shown in the collection list. |
+| `file` | yes | Path of the file in the repository. |
+| `fields` | yes | Fields of this file, see [Fields](#fields). |
+
+- Files are listed in the order of the config, under their label. A file missing from the repository opens empty, and saving it creates it.
+- Files cannot be created nor deleted from the CMS. Drafts, scheduling, history and SEO work as in folder collections.
+- `seo` may name fields of any of the files. `folder`, `extension`, `slug`, `create`, `i18n` and `i18n_key` do not apply: `i18n` is refused.
 
 ### Slugs
 
@@ -269,7 +304,7 @@ The CMS caches `sumigo.yml` for one minute per site. To apply a change right awa
 | `config.yml` anywhere (often `static/admin/config.yml`) | `sumigo.yml` at the repository root |
 | `backend` (repo, branch) | Set per site in the CMS, ignored in the file |
 | `publish_mode: editorial_workflow` | Set per site in the CMS (`direct` or `pr`), ignored in the file. Keeping it in the CMS means editing the file cannot bypass review. |
-| `files` collections | Not supported yet, ignored |
+| `files` collections | Supported, without `i18n` |
 | Nested folders, `path`, `filter`, `summary`, `sortable_fields`, `view_filters` | Not supported, ignored |
 | `i18n` with `structure: single_file`, or an `i18n` object on a collection | Not supported, refused |
 | A field without `i18n` lives only in the default locale | It is copied into translations, `i18n: false` keeps it in the default locale |

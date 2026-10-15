@@ -52,9 +52,38 @@ type Collection struct {
 	I18n bool `yaml:"i18n,omitempty" json:"i18n,omitempty"`
 	// I18nKey names the front matter field pairing the translations of an entry, so each locale keeps its own file name.
 	// Without it, translations share the file name of the default entry, like Decap.
-	I18nKey   string   `yaml:"i18n_key,omitempty" json:"i18n_key,omitempty"`
-	Locales   []string `yaml:"-" json:"locales,omitempty"`
+	I18nKey string   `yaml:"i18n_key,omitempty" json:"i18n_key,omitempty"`
+	Locales []string `yaml:"-" json:"locales,omitempty"`
+	// Files makes a collection of fixed files, each with its own fields, instead of a folder (Decap "files" collection).
+	// Entries can be edited, never created nor deleted.
+	Files     []File `yaml:"files,omitempty" json:"files,omitempty"`
 	structure string
+}
+
+// File is one entry of a files collection: its slug is Name.
+type File struct {
+	Name   string  `yaml:"name,omitempty" json:"name"`
+	Label  string  `yaml:"label,omitempty" json:"label,omitempty"`
+	File   string  `yaml:"file,omitempty" json:"file"`
+	Fields []Field `yaml:"fields,omitempty" json:"fields"`
+}
+
+// IsFiles reports whether the collection lists fixed files instead of a folder.
+func (c Collection) IsFiles() bool { return len(c.Files) > 0 }
+
+// Entry returns the collection as seen by one of its entries: a file of a files collection brings its own fields.
+// ok is false for a name that is not one of the files.
+func (c Collection) Entry(slug string) (*Collection, bool) {
+	if !c.IsFiles() {
+		return &c, true
+	}
+	for _, f := range c.Files {
+		if f.Name == slug {
+			c.Fields = f.Fields
+			return &c, true
+		}
+	}
+	return nil, false
 }
 
 // SEO names the fields of a collection that hold its search metadata.
@@ -95,6 +124,9 @@ func (f Field) Translatable() bool {
 func (f Field) IsRequired() bool { return f.Required == nil || *f.Required }
 
 func (c Collection) Ext() string {
+	if c.IsFiles() {
+		return path.Ext(c.Files[0].File)
+	}
 	if c.Extension != "" {
 		return "." + strings.TrimPrefix(c.Extension, ".")
 	}
@@ -117,6 +149,9 @@ func (c Collection) IsLocale(locale string) bool {
 // Dir returns the folder holding the entries of a locale and the end of their file names after the slug.
 // "" is the default locale.
 func (c Collection) Dir(locale string) (string, string) {
+	if c.IsFiles() {
+		return "", ""
+	}
 	if !c.I18n {
 		return c.Folder, c.Ext()
 	}
@@ -131,6 +166,14 @@ func (c Collection) Dir(locale string) (string, string) {
 
 // Path is the file of an entry in a locale, "" being the default one.
 func (c Collection) Path(slug, locale string) string {
+	if c.IsFiles() {
+		for _, f := range c.Files {
+			if f.Name == slug {
+				return f.File
+			}
+		}
+		return ""
+	}
 	dir, suffix := c.Dir(locale)
 	return path.Join(dir, slug+suffix)
 }
@@ -150,8 +193,7 @@ func (c Collection) TitleField() string {
 	return "title"
 }
 
-// ParseConfig reads a Decap-style config. Collections without a folder (Decap "files"
-// collections) are skipped.
+// ParseConfig reads a Decap-style config.
 func ParseConfig(raw []byte) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
@@ -162,8 +204,13 @@ func ParseConfig(raw []byte) (*Config, error) {
 	}
 	cols := cfg.Collections[:0]
 	for _, c := range cfg.Collections {
-		if c.Folder == "" {
+		if c.Folder == "" && !c.IsFiles() {
 			continue
+		}
+		if c.IsFiles() {
+			if err := c.checkFiles(); err != nil {
+				return nil, fmt.Errorf("collection %s: %w", c.Name, err)
+			}
 		}
 		if c.I18n {
 			if cfg.I18n == nil {
@@ -181,7 +228,7 @@ func ParseConfig(raw []byte) (*Config, error) {
 		c.Folder = strings.Trim(c.Folder, "/")
 		if c.SEO != nil {
 			for _, name := range []string{c.SEO.Title, c.SEO.Description, c.SEO.Keywords, c.SEO.Image} {
-				if name != "" && !slices.ContainsFunc(c.Fields, func(f Field) bool { return f.Name == name }) {
+				if name != "" && !slices.ContainsFunc(c.allFields(), func(f Field) bool { return f.Name == name }) {
 					return nil, fmt.Errorf("collection %s: seo uses field %q, which is not in its fields", c.Name, name)
 				}
 			}
@@ -190,12 +237,49 @@ func ParseConfig(raw []byte) (*Config, error) {
 	}
 	cfg.Collections = cols
 	for _, c := range cols {
-		if err := checkRelations(cols, c.Fields); err != nil {
+		if err := checkRelations(cols, c.allFields()); err != nil {
 			return nil, fmt.Errorf("collection %s: %w", c.Name, err)
 		}
 	}
 	cfg.MediaFolder = strings.Trim(cfg.MediaFolder, "/")
 	return &cfg, nil
+}
+
+// checkFiles validates the files of a files collection, which can be edited but never created.
+func (c *Collection) checkFiles() error {
+	if c.I18n {
+		return errors.New("i18n is not supported with files")
+	}
+	seen := map[string]bool{}
+	for i, f := range c.Files {
+		if f.Name == "" || strings.HasPrefix(f.Name, ".") || strings.ContainsAny(f.Name, `/\`) || seen[f.Name] {
+			return fmt.Errorf("file names must be set, unique and contain no slash: %q", f.Name)
+		}
+		seen[f.Name] = true
+		c.Files[i].File = strings.Trim(f.File, "/")
+		if c.Files[i].File == "" || strings.Contains("/"+c.Files[i].File+"/", "/../") {
+			return fmt.Errorf("file %s needs a file path in the repository", f.Name)
+		}
+		// Sent as [] rather than null: the UI lists the fields of every collection and file.
+		if f.Fields == nil {
+			c.Files[i].Fields = []Field{}
+		}
+	}
+	if c.Fields == nil {
+		c.Fields = []Field{}
+	}
+	no := false
+	c.Create = &no
+	return nil
+}
+
+// allFields lists the fields of the collection and of each of its files.
+func (c Collection) allFields() []Field {
+	fields := slices.Clone(c.Fields)
+	for _, f := range c.Files {
+		fields = append(fields, f.Fields...)
+	}
+	return fields
 }
 
 // checkRelations makes sure every relation field, nested ones included, points to a folder collection.

@@ -36,6 +36,7 @@ The *go* has a double meaning: it is also there because the Sumigo server is wri
 - 🖼️ **Lighter images**: resized, converted to WebP and stripped of their metadata (GPS position included) before upload.
 - 👥 **Roles per site**: viewer, editor, publisher, and a review workflow where only publishers put content live.
 - 🔐 **Single sign-on**: OpenID Connect (Keycloak, Authentik, Zitadel, Okta, Entra ID, Google…), with admin rights from a group.
+- 📄 **Fixed pages**: "files" collections give each page its own fields, so editors change the texts of a home or about page without touching its layout.
 - 🧩 **Content model in the repository**: a Decap-style `sumigo.yml`, edited with completion and live checks. A repository without one gets it drafted from its files, or imported from its Decap config.
 - 🌐 **English, French, Spanish** interface.
 
