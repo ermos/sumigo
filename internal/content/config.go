@@ -51,6 +51,11 @@ type Field struct {
 	Options  []any   `yaml:"options,omitempty" json:"options,omitempty"`
 	Default  any     `yaml:"default,omitempty" json:"default,omitempty"`
 	Fields   []Field `yaml:"fields,omitempty" json:"fields,omitempty"`
+	// Collection, ValueField, DisplayFields and Multiple set up a relation widget, like Decap.
+	Collection    string   `yaml:"collection,omitempty" json:"collection,omitempty"`
+	ValueField    string   `yaml:"value_field,omitempty" json:"value_field,omitempty"`
+	DisplayFields []string `yaml:"display_fields,omitempty" json:"display_fields,omitempty"`
+	Multiple      bool     `yaml:"multiple,omitempty" json:"multiple,omitempty"`
 }
 
 // IsRequired follows Decap: fields are required unless `required: false`.
@@ -96,6 +101,24 @@ func ParseConfig(raw []byte) (*Config, error) {
 		cols = append(cols, c)
 	}
 	cfg.Collections = cols
+	for _, c := range cols {
+		if err := checkRelations(cols, c.Fields); err != nil {
+			return nil, fmt.Errorf("collection %s: %w", c.Name, err)
+		}
+	}
 	cfg.MediaFolder = strings.Trim(cfg.MediaFolder, "/")
 	return &cfg, nil
+}
+
+// checkRelations makes sure every relation field, nested ones included, points to a folder collection.
+func checkRelations(cols []Collection, fields []Field) error {
+	for _, f := range fields {
+		if f.Widget == "relation" && !slices.ContainsFunc(cols, func(c Collection) bool { return c.Name == f.Collection }) {
+			return fmt.Errorf("relation field %q uses collection %q, which is not a folder collection", f.Name, f.Collection)
+		}
+		if err := checkRelations(cols, f.Fields); err != nil {
+			return err
+		}
+	}
+	return nil
 }

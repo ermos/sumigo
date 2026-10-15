@@ -252,7 +252,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, f := range col.Fields {
-		if v := in.Data[f.Name]; f.IsRequired() && f.Widget != "boolean" && (v == nil || v == "") {
+		if v := in.Data[f.Name]; f.IsRequired() && f.Widget != "boolean" && (v == nil || v == "" || isEmptyList(v)) {
 			httpError(w, http.StatusBadRequest, "field_required", "field "+f.Name+" is required", params{"field": f.Name})
 			return
 		}
@@ -786,6 +786,11 @@ func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"data": data, "patch": patch})
+}
+
+func isEmptyList(v any) bool {
+	l, ok := v.([]any)
+	return ok && len(l) == 0
 }
 
 func isHex(s string) bool {

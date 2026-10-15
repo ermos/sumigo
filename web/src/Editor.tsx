@@ -3,9 +3,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
-import { DraftPill, Empty, entriesKey, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
+import { DraftPill, Empty, entriesKey, fetchEntries, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
-import { getCached, setCached } from './cache';
+import { getCached, setCached, useCached } from './cache';
 import { diffText, Part } from './diff';
 import { Chevron } from './App';
 import { t } from './i18n';
@@ -560,7 +560,9 @@ const isPrimitive = (v: unknown) => v == null || ['string', 'number', 'boolean']
 function FieldInput({ site, field, value, readOnly, onChange, assist }: FieldProps) {
   const str = value == null ? '' : String(value);
   const complex =
-    field.widget === 'object' || (field.widget === 'list' && (field.fields || (Array.isArray(value) && value.some((v) => typeof v !== 'string')))) || (!isPrimitive(value) && field.widget !== 'list');
+    field.widget === 'object' ||
+    (['list', 'relation'].includes(field.widget) && (field.fields || (Array.isArray(value) && value.some((v) => typeof v !== 'string')))) ||
+    (!isPrimitive(value) && !['list', 'relation'].includes(field.widget));
   const [suggesting, setSuggesting] = useState(false);
   const [aiError, setAiError] = useState('');
   // The value before the last suggestion, to undo it.
@@ -663,6 +665,9 @@ function FieldInput({ site, field, value, readOnly, onChange, assist }: FieldPro
     case 'list':
       input = <ListInput value={Array.isArray(value) ? value.map(String) : []} onChange={onChange} readOnly={readOnly} />;
       break;
+    case 'relation':
+      input = <RelationInput site={site} field={field} value={value} onChange={onChange} {...common} />;
+      break;
     case 'image':
       input = <ImageInput site={site} value={str} onChange={onChange} readOnly={readOnly} />;
       break;
@@ -722,6 +727,66 @@ function ListInput({ value, onChange, readOnly }: { value: string[]; onChange: (
         );
       }}
     />
+  );
+}
+
+// RelationInput picks entries of another collection, by their slug or the value_field, labelled with the first display_fields.
+// ponytail: a native select, fine for authors or categories; a search box when collections get into the hundreds.
+function RelationInput({ site, field, value, onChange, disabled, required }: { site: SiteDetail; field: Field; value: unknown; onChange: (v: unknown) => void; disabled: boolean; required: boolean }) {
+  const col = field.collection ?? '';
+  const { data: entries, error } = useCached(entriesKey(site.id, col), () => fetchEntries(site.id, col));
+  const valueField = field.value_field ?? '{{slug}}';
+  const options = (entries ?? []).map((e) => ({
+    value: valueField === '{{slug}}' ? e.slug : String(e.data?.[valueField] ?? ''),
+    label: String((field.display_fields?.[0] && e.data?.[field.display_fields[0]]) || e.title),
+  }));
+  const labelOf = (v: string) => options.find((o) => o.value === v)?.label ?? v;
+  if (error) return <span className="text-xs font-normal text-danger">{error}</span>;
+  if (!field.multiple) {
+    const str = value == null ? '' : String(value);
+    return (
+      <select className="field" value={str} onChange={(e) => onChange(e.target.value)} disabled={disabled} required={required}>
+        <option value="">{entries ? '' : t('Loading…')}</option>
+        {/* Keep a value that matches no entry, so saving never drops it. */}
+        {str && !options.some((o) => o.value === str) && <option value={str}>{str}</option>}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  const list = Array.isArray(value) ? value.map(String) : value ? [String(value)] : [];
+  return (
+    <span className="flex flex-col gap-2">
+      {list.length > 0 && (
+        <span className="flex flex-wrap gap-1.5">
+          {list.map((v) => (
+            <span key={v} className="pill flex items-center gap-1 bg-accent-soft text-accent">
+              {labelOf(v)}
+              {!disabled && (
+                <button type="button" aria-label={t('Remove {name}', { name: labelOf(v) })} className="hover:text-ink" onClick={() => onChange(list.filter((x) => x !== v))}>
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </span>
+      )}
+      {!disabled && (
+        <select className="field" value="" onChange={(e) => e.target.value && onChange([...list, e.target.value])} required={required && !list.length}>
+          <option value="">{t(entries ? 'Add…' : 'Loading…')}</option>
+          {options
+            .filter((o) => !list.includes(o.value))
+            .map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+        </select>
+      )}
+    </span>
   );
 }
 

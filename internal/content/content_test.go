@@ -70,3 +70,14 @@ func TestSEOMustUseFieldsOfTheCollection(t *testing.T) {
 		t.Fatalf("unknown seo field accepted: %v", err)
 	}
 }
+
+func TestRelationsMustPointToACollection(t *testing.T) {
+	ok := "collections:\n  - name: authors\n    folder: authors\n    fields: [{ name: name }]\n  - name: blog\n    folder: blog\n    fields:\n      - { name: author, widget: relation, collection: authors, display_fields: [name], multiple: true }\n"
+	cfg, err := ParseConfig([]byte(ok))
+	if err != nil || cfg.Collections[1].Fields[0].Collection != "authors" || !cfg.Collections[1].Fields[0].Multiple {
+		t.Fatalf("cfg = %+v, %v", cfg, err)
+	}
+	if _, err := ParseConfig([]byte(strings.Replace(ok, "collection: authors", "collection: people", 1))); err == nil || !strings.Contains(err.Error(), `"people"`) {
+		t.Fatalf("unknown relation collection accepted: %v", err)
+	}
+}

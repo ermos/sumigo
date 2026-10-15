@@ -29,6 +29,7 @@ collections:
       - { name: description, label: Description, widget: text, required: false }
       - { name: category, label: Category, widget: select, options: [news, tutorial, release] }
       - { name: tags, label: Tags, widget: list, required: false }
+      - { name: author, label: Author, widget: relation, collection: authors, display_fields: [name] }
       - { name: cover, label: Cover image, widget: image, required: false }
       - { name: draft, label: Draft, widget: boolean, default: true }
       - { name: body, label: Content, widget: markdown }
@@ -137,6 +138,7 @@ Every key is optional, and a named field must exist in `fields`. The checks: tit
 | `default` | no | none | Initial value when creating an entry. |
 | `options` | for `select` | none | Allowed values, see `select`. |
 | `fields` | no | none | Sub-fields of an `object`, or of a `list` of objects. These are edited as JSON for now. |
+| `collection`, `value_field`, `display_fields`, `multiple` | for `relation` | | See [Relations](#relations). |
 
 ### The `body` field
 
@@ -168,10 +170,11 @@ The **body** goes here.
 | `select` | Dropdown | String |
 | `list` | Comma separated input | List of strings: `[go, cms]` |
 | `image` | Path input + upload button | String (public URL) |
+| `relation` | Dropdown of the entries of another collection | String, or list of strings with `multiple: true` |
 | `hidden` | Not shown | Kept as is, or `default` on creation |
 | `object` | JSON textarea | Nested map |
 
-Any other widget name (for example Decap's `relation` or `file`) is shown as a single line text input. If the existing value is not plain text, a JSON editor is shown instead, so it is never lost.
+Any other widget name (for example Decap's `file`) is shown as a single line text input. If the existing value is not plain text, a JSON editor is shown instead, so it is never lost.
 
 `select` options can be plain strings or label/value pairs:
 
@@ -182,6 +185,21 @@ Any other widget name (for example Decap's `relation` or `file`) is shown as a s
     - news
     - { label: "Tutorials", value: tutorial }
 ```
+
+### Relations
+
+A `relation` field links an entry to entries of another collection: the author of a post, its categories.
+
+```yaml
+- name: authors
+  widget: relation
+  collection: authors        # a folder collection of this file
+  value_field: "{{slug}}"    # stored value: the file name (default), or a field name
+  display_fields: [name]     # the first one labels the choices, identifier_field by default
+  multiple: true             # a list of entries instead of one
+```
+
+The choices are the entries of `collection`, drafts included. A stored value that matches no entry is kept as is. Decap's `search_fields` is accepted and ignored.
 
 ## How entries are written
 
@@ -204,5 +222,6 @@ The CMS caches `sumigo.yml` for one minute per site. To apply a change right awa
 | `files` collections | Not supported yet, ignored |
 | Nested folders, `path`, `i18n`, `filter`, `summary`, `sortable_fields`, `view_filters` | Not supported, ignored |
 | Per-collection `media_folder` | Not supported, the top-level one is used |
-| `relation`, `file`, `code`, `color`, `map` widgets | Plain text input |
+| `file`, `code`, `color`, `map` widgets | Plain text input |
+| `relation` with `{{fields.x}}` templates in `value_field` or `display_fields` | Field names only |
 | `object` and `list` with `fields` | JSON editor |

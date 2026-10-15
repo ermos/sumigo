@@ -24,6 +24,11 @@ export interface Field {
   options?: Option[];
   default?: unknown;
   fields?: Field[];
+  // collection, value_field, display_fields and multiple set up a relation field.
+  collection?: string;
+  value_field?: string;
+  display_fields?: string[];
+  multiple?: boolean;
 }
 
 export interface Collection {

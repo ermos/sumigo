@@ -51,6 +51,7 @@ export const es: Record<keyof typeof fr, string> = {
   Name: 'Nombre',
   Role: 'Rol',
   'Delete {name}?': '¿Eliminar {name}?',
+  'Add…': 'Añadir…',
   'Unknown collection.': 'Colección desconocida.',
   'New entry': 'Nueva entrada',
   'Draft #{n}': 'Borrador #{n}',

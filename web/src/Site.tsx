@@ -7,6 +7,10 @@ import { useCached } from './cache';
 import { Pending, Spinner, useAction, useConfirm } from './ui';
 import { lang, t } from './i18n';
 
+// fetchEntries loads a collection, newest first. Shared by its list and the relation fields pointing to it, which share the cache.
+export const fetchEntries = (siteId: number, col: string) =>
+  api<EntrySummary[]>('GET', `/sites/${siteId}/collections/${col}/entries`).then((e) => e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug))));
+
 export const entriesKey = (siteId: number, col?: string) => `entries:${siteId}:${col}`;
 
 type SiteCtx = Ctx & { site: SiteDetail };
@@ -225,9 +229,7 @@ export function CollectionView() {
   const { col } = useParams();
   const [filter, setFilter] = useState('');
   const collection = site.config?.collections.find((c) => c.name === col);
-  const { data: entries, error } = useCached(entriesKey(site.id, col), () =>
-    api<EntrySummary[]>('GET', `/sites/${site.id}/collections/${col}/entries`).then((e) => e.sort((a, b) => String(b.date ?? b.slug).localeCompare(String(a.date ?? a.slug)))),
-  );
+  const { data: entries, error } = useCached(entriesKey(site.id, col), () => fetchEntries(site.id, col!));
 
   if (!collection) return <Empty>{t('Unknown collection.')}</Empty>;
   const q = filter.toLowerCase();
