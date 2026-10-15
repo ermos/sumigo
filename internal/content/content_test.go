@@ -81,3 +81,32 @@ func TestRelationsMustPointToACollection(t *testing.T) {
 		t.Fatalf("unknown relation collection accepted: %v", err)
 	}
 }
+
+func TestI18nPaths(t *testing.T) {
+	raw := "i18n: { structure: multiple_folders, locales: [en, fr, de], default_locale: fr }\ncollections:\n  - { name: blog, folder: blog, i18n: true }\n  - { name: pages, folder: pages }\n"
+	cfg, err := ParseConfig([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blog, pages := cfg.Collections[0], cfg.Collections[1]
+	if strings.Join(blog.Locales, ",") != "fr,en,de" {
+		t.Fatalf("default locale first: %v", blog.Locales)
+	}
+	if blog.Path("hi", "") != "blog/fr/hi.md" || blog.Path("hi", "de") != "blog/de/hi.md" || pages.Path("hi", "") != "pages/hi.md" {
+		t.Fatal(blog.Path("hi", ""), blog.Path("hi", "de"), pages.Path("hi", ""))
+	}
+	cfg, err = ParseConfig([]byte(strings.Replace(raw, "multiple_folders", "multiple_files", 1)))
+	if err != nil || cfg.Collections[0].Path("hi", "en") != "blog/hi.en.md" {
+		t.Fatalf("multiple_files: %v", err)
+	}
+	for _, bad := range []string{
+		strings.Replace(raw, "multiple_folders", "single_file", 1),
+		strings.Replace(raw, "default_locale: fr", "default_locale: it", 1),
+		strings.Replace(raw, "[en, fr, de]", "[en, ../x]", 1),
+		"collections:\n  - { name: blog, folder: blog, i18n: true }\n",
+	} {
+		if _, err := ParseConfig([]byte(bad)); err == nil {
+			t.Fatalf("accepted:\n%s", bad)
+		}
+	}
+}

@@ -40,6 +40,8 @@ type fakeGitHub struct {
 	graphql map[string]any
 	// pulls, when set, answers GET /pulls.
 	pulls string
+	// config, when set, replaces testConfig.
+	config string
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +58,11 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"dir":{"entries":[{"name":"old.md","type":"blob","object":{"text":"---\ntitle: Old post\ncover: /static/img/cat.svg\n---\n"}},{"name":"img","type":"tree","object":{}}]},
 			"e0":{"text":"---\ntitle: Draft post\n---\n"}}}}`))
 	case r.Method == http.MethodGet && p == "/contents/sumigo.yml":
-		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(testConfig)), "sha": "c1"})
+		cfg := testConfig
+		if f.config != "" {
+			cfg = f.config
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(cfg)), "sha": "c1"})
 	case r.Method == http.MethodGet && p == "/pulls" && f.pulls != "":
 		_, _ = w.Write([]byte(f.pulls))
 	case r.Method == http.MethodGet && p == "/pulls" && len(f.writes) > 0:
@@ -799,5 +805,56 @@ func TestLoginWaitsAfterTooManyWrongPasswords(t *testing.T) {
 	}
 	if a.logins.blocked("jane@acme.io", time.Now().Add(loginWindow)) {
 		t.Fatal("the wait must end with the window")
+	}
+}
+
+// A translation is saved in its locale folder, without the fields that only live in the default locale.
+func TestTranslationIsSavedInItsLocale(t *testing.T) {
+	gh := &fakeGitHub{config: `
+i18n: { structure: multiple_folders, locales: [en, fr] }
+collections:
+  - name: posts
+    folder: content/posts
+    i18n: true
+    fields:
+      - {name: title, widget: string, i18n: true}
+      - {name: date, widget: date}
+`}
+	a, st := newTestAPI(t, gh)
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RoleEditor}}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(jane.ID, time.Hour)
+	put := func(query string) int {
+		req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/sites/1/collections/posts/entries/hello"+query, strings.NewReader(`{"data":{"title":"Bonjour"},"publish":true}`))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+
+	if code := put("?locale=de"); code != http.StatusBadRequest {
+		t.Fatalf("unknown locale: %d", code)
+	}
+	if code := put("?locale=fr"); code != http.StatusOK {
+		t.Fatalf("translation: %d", code)
+	}
+	if len(gh.writes) != 1 || gh.writes[0] != "PUT /contents/content/posts/fr/hello.md" {
+		t.Fatalf("writes: %v", gh.writes)
+	}
+	if code := put(""); code != http.StatusBadRequest {
+		t.Fatalf("the default locale still requires its date: %d", code)
 	}
 }

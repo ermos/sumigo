@@ -2,7 +2,12 @@
 
 // Keys of sumigo.yml by the key they sit under, with a short help shown next to the completion.
 export const keys: Record<string, Record<string, string>> = {
-  '': { media_folder: 'Repository folder of uploads', public_folder: 'URL prefix of uploads', collections: 'Folders of entries' },
+  '': { media_folder: 'Repository folder of uploads', public_folder: 'URL prefix of uploads', collections: 'Folders of entries', i18n: 'Languages of translated collections' },
+  i18n: {
+    structure: 'multiple_folders (posts/fr/hi.md) or multiple_files (posts/hi.fr.md)',
+    locales: 'Language codes, like [en, fr]',
+    default_locale: 'First locale by default',
+  },
   collections: {
     name: 'Unique id, no slash',
     label: 'Name shown in the UI',
@@ -12,6 +17,7 @@ export const keys: Record<string, Record<string, string>> = {
     identifier_field: 'Field used as the title',
     create: 'false prevents new entries',
     seo: 'SEO analysis of the entries',
+    i18n: 'true stores each entry per locale',
     fields: 'Fields of the entries',
   },
   fields: {
@@ -26,6 +32,7 @@ export const keys: Record<string, Record<string, string>> = {
     value_field: 'Stored value of a relation, {{slug}} by default',
     display_fields: 'Fields shown to pick a relation',
     multiple: 'true picks several entries',
+    i18n: 'true translated, duplicate copied from the default locale',
   },
   seo: {
     title: 'Field of the meta title',
@@ -70,6 +77,8 @@ export function suggest(above: string, before: string, doc: string, explicit = f
     const from = value[2].length;
     if (value[1] === 'widget') return options(widgets, from);
     if (booleans.includes(value[1])) return options(['true', 'false'], from);
+    if (value[1] === 'i18n') return options(['true', 'false', 'duplicate'], from);
+    if (value[1] === 'structure') return options(['multiple_folders', 'multiple_files'], from);
     if (['title', 'description', 'keywords', 'image'].includes(value[1]) && parentKey(above.split('\n'), indentOf(before)) === 'seo') {
       const names = [...doc.matchAll(/(?:^|[{,\s])name:\s*([\w-]+)/g)].map((m) => m[1]);
       return options([...new Set(names)], from);

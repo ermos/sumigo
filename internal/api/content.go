@@ -115,7 +115,28 @@ func (a *API) collection(w http.ResponseWriter, r *http.Request, min string) (*s
 	return nil, nil, false
 }
 
-func entryPath(c *content.Collection, slug string) string { return path.Join(c.Folder, slug+c.Ext()) }
+func entryPath(c *content.Collection, slug string) string { return c.Path(slug, "") }
+
+// locale reads ?locale=, a locale of the collection; "" is the default one.
+func locale(w http.ResponseWriter, r *http.Request, col *content.Collection) (string, bool) {
+	l := r.URL.Query().Get("locale")
+	if !col.IsLocale(l) {
+		httpError(w, http.StatusBadRequest, "unknown_locale", "unknown locale "+l, params{"locale": l})
+		return "", false
+	}
+	if col.I18n && l == col.Locales[0] {
+		l = ""
+	}
+	return l, true
+}
+
+// autosaveKey keeps the autosave of each translation apart: "fr/hello" cannot clash with a slug, which has no slash.
+func autosaveKey(slug, locale string) string {
+	if locale == "" {
+		return slug
+	}
+	return locale + "/" + slug
+}
 
 func validSlug(s string) bool {
 	return s != "" && !strings.HasPrefix(s, ".") && !strings.ContainsAny(s, `/\`)
@@ -141,6 +162,8 @@ type entrySummary struct {
 	Title string      `json:"title"`
 	Date  any         `json:"date,omitempty"`
 	Draft *forge.Pull `json:"draft,omitempty"`
+	// Locales lists the locales the entry is published in, for translated collections.
+	Locales []string `json:"locales,omitempty"`
 	// Data is the full entry (front matter + body), so the UI opens it without another call.
 	Data map[string]any `json:"data,omitempty"`
 }
@@ -176,7 +199,8 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
 	a.markScheduled(sc.site.ID, pulls)
-	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, col.Folder, col.Ext(), extra)
+	dir, suffix := col.Dir("")
+	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, dir, col.Ext(), extra)
 	if err != nil {
 		fail(w, err)
 		return
@@ -184,8 +208,8 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 	entries := []entrySummary{}
 	index := map[string]int{}
 	for _, b := range blobs {
-		if strings.HasSuffix(b.Name, col.Ext()) {
-			slug := strings.TrimSuffix(b.Name, col.Ext())
+		if strings.HasSuffix(b.Name, suffix) {
+			slug := strings.TrimSuffix(b.Name, suffix)
 			index[slug] = len(entries)
 			entries = append(entries, summarize(col, slug, b.Text))
 		}
@@ -199,7 +223,44 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 			entries = append(entries, e)
 		}
 	}
+	if col.I18n {
+		if err := sc.markLocales(r.Context(), col, blobs, entries, index); err != nil {
+			fail(w, err)
+			return
+		}
+	}
 	writeJSON(w, entries)
+}
+
+// markLocales fills the published locales of the entries of a translated collection.
+// ponytail: translations that only exist in a draft are not marked, the draft pill already flags the entry.
+func (sc *siteCtx) markLocales(ctx context.Context, col *content.Collection, blobs []forge.Blob, entries []entrySummary, index map[string]int) error {
+	for _, j := range index {
+		entries[j].Locales = []string{col.Locales[0]}
+	}
+	for _, l := range col.Locales[1:] {
+		dir, suffix := col.Dir(l)
+		var names []string
+		if dir == col.Folder {
+			for _, b := range blobs {
+				names = append(names, b.Name)
+			}
+		} else {
+			files, err := sc.gh.ListDir(ctx, dir, sc.site.Branch)
+			if err != nil && !forge.IsNotFound(err) {
+				return err
+			}
+			for _, f := range files {
+				names = append(names, f.Name)
+			}
+		}
+		for _, n := range names {
+			if j, ok := index[strings.TrimSuffix(n, suffix)]; ok && strings.HasSuffix(n, suffix) {
+				entries[j].Locales = append(entries[j].Locales, l)
+			}
+		}
+	}
+	return nil
 }
 
 func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +273,10 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
+	loc, ok := locale(w, r, col)
+	if !ok {
+		return
+	}
 	ref := sc.site.Branch
 	pr, err := sc.draft(r.Context(), branchPrefix+col.Name+"/"+slug)
 	if err != nil {
@@ -222,7 +287,7 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 		ref = pr.Head.Ref
 		a.markScheduled(sc.site.ID, []forge.Pull{*pr})
 	}
-	raw, _, err := sc.gh.GetFile(r.Context(), entryPath(col, slug), ref)
+	raw, _, err := sc.gh.GetFile(r.Context(), col.Path(slug, loc), ref)
 	if err != nil {
 		fail(w, err)
 		return
@@ -251,7 +316,20 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
+	loc, ok := locale(w, r, col)
+	if !ok {
+		return
+	}
+	creating := r.Method == http.MethodPost
+	// An entry is created in the default locale, its translations are added to it.
+	if creating && loc != "" {
+		httpError(w, http.StatusBadRequest, "translation_of_new_entry", "create the entry in the default locale first")
+		return
+	}
 	for _, f := range col.Fields {
+		if loc != "" && !f.Translatable() {
+			continue
+		}
 		if v := in.Data[f.Name]; f.IsRequired() && f.Widget != "boolean" && (v == nil || v == "" || isEmptyList(v)) {
 			httpError(w, http.StatusBadRequest, "field_required", "field "+f.Name+" is required", params{"field": f.Name})
 			return
@@ -261,7 +339,6 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusForbidden, "publisher_only_draft", "only publishers can publish on this site, save a draft instead")
 		return
 	}
-	creating := r.Method == http.MethodPost
 	slug := r.PathValue("slug")
 	if creating && col.Create != nil && !*col.Create {
 		httpError(w, http.StatusForbidden, "create_disabled", "this collection does not allow new entries (create: false)")
@@ -282,7 +359,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	file := entryPath(col, slug)
+	file := col.Path(slug, loc)
 	branch := sc.site.Branch
 	pr, err := sc.draft(ctx, branchPrefix+col.Name+"/"+slug)
 	if err != nil {
@@ -324,13 +401,17 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 	if sha == "" {
 		action = "create"
 	}
-	msg := fmt.Sprintf("content(%s): %s %s\n\nEdited by %s <%s> via Sumigo", col.Name, action, slug, sc.user.Name, sc.user.Email)
+	name := slug
+	if loc != "" {
+		name += " (" + loc + ")"
+	}
+	msg := fmt.Sprintf("content(%s): %s %s\n\nEdited by %s <%s> via Sumigo", col.Name, action, name, sc.user.Name, sc.user.Email)
 	if err := sc.gh.PutFile(ctx, file, branch, msg, raw, sha, sc.author()); err != nil {
 		fail(w, err)
 		return
 	}
 	if viaDraft && pr == nil {
-		title := fmt.Sprintf("content(%s): %s %s (by %s)", col.Name, action, slug, sc.user.Name)
+		title := fmt.Sprintf("content(%s): %s %s (by %s)", col.Name, action, name, sc.user.Name)
 		body := fmt.Sprintf("Opened from Sumigo by **%s** (%s).", sc.user.Name, sc.user.Email)
 		if pr, err = sc.gh.CreatePull(ctx, title, branch, sc.site.Branch, body); err != nil {
 			fail(w, err)
@@ -350,7 +431,7 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		pr = &pulls[0]
 	}
 	// The entry is committed: what was autosaved for it is now stale.
-	if err := a.Store.DeleteAutosave(sc.site.ID, sc.user.ID, col.Name, r.PathValue("slug")); err != nil {
+	if err := a.Store.DeleteAutosave(sc.site.ID, sc.user.ID, col.Name, autosaveKey(r.PathValue("slug"), loc)); err != nil {
 		fail(w, err)
 		return
 	}
@@ -363,11 +444,12 @@ func (a *API) autosave(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	col, slug := r.PathValue("col"), r.URL.Query().Get("slug")
-	if slug != "" && !validSlug(slug) {
+	col, slug, loc := r.PathValue("col"), r.URL.Query().Get("slug"), r.URL.Query().Get("locale")
+	if (slug != "" && !validSlug(slug)) || (loc != "" && !validSlug(loc)) {
 		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
+	slug = autosaveKey(slug, loc)
 	switch r.Method {
 	case http.MethodGet:
 		saved, err := a.Store.GetAutosave(sc.site.ID, sc.user.ID, col, slug)
@@ -434,19 +516,27 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	file := entryPath(col, slug)
-	_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
-	if forge.IsNotFound(err) && pr != nil {
-		w.WriteHeader(http.StatusNoContent)
-		return
+	// Every locale goes: a translation left without its default entry would never be listed.
+	deleted := pr != nil
+	for _, loc := range col.AllLocales() {
+		file := col.Path(slug, loc)
+		_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
+		if forge.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		msg := fmt.Sprintf("content(%s): delete %s\n\nDeleted by %s <%s> via Sumigo", col.Name, path.Base(file), sc.user.Name, sc.user.Email)
+		if err := sc.gh.DeleteFile(ctx, file, sc.site.Branch, msg, sha, sc.author()); err != nil {
+			fail(w, err)
+			return
+		}
+		deleted = true
 	}
-	if err != nil {
-		fail(w, err)
-		return
-	}
-	msg := fmt.Sprintf("content(%s): delete %s\n\nDeleted by %s <%s> via Sumigo", col.Name, slug, sc.user.Name, sc.user.Email)
-	if err := sc.gh.DeleteFile(ctx, file, sc.site.Branch, msg, sha, sc.author()); err != nil {
-		fail(w, err)
+	if !deleted {
+		httpError(w, http.StatusNotFound, "not_found", "not found")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -563,17 +653,29 @@ func (sc *siteCtx) entryTexts(ctx context.Context, cfg *content.Config) ([]strin
 		var extra []string
 		for _, p := range pulls {
 			if strings.HasPrefix(p.Head.Ref, prefix) {
-				extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
+				for _, loc := range col.AllLocales() {
+					extra = append(extra, p.Head.Ref+":"+col.Path(strings.TrimPrefix(p.Head.Ref, prefix), loc))
+				}
 			}
 		}
-		blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, col.Folder, col.Ext(), extra)
-		if err != nil {
-			return nil, err
+		// The drafts are read with the first folder, the other locales only add their folder (multiple_folders).
+		dirs := map[string]bool{}
+		for _, loc := range col.AllLocales() {
+			dir, _ := col.Dir(loc)
+			if dirs[dir] {
+				continue
+			}
+			dirs[dir] = true
+			blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, dir, col.Ext(), extra)
+			if err != nil {
+				return nil, err
+			}
+			for _, b := range blobs {
+				texts = append(texts, b.Text)
+			}
+			texts = append(texts, drafts...)
+			extra = nil
 		}
-		for _, b := range blobs {
-			texts = append(texts, b.Text)
-		}
-		texts = append(texts, drafts...)
 	}
 	return texts, nil
 }
@@ -741,6 +843,10 @@ func (a *API) entryHistory(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
+	loc, ok := locale(w, r, col)
+	if !ok {
+		return
+	}
 	ref := sc.site.Branch
 	pr, err := sc.draft(r.Context(), branchPrefix+col.Name+"/"+slug)
 	if err != nil {
@@ -750,7 +856,7 @@ func (a *API) entryHistory(w http.ResponseWriter, r *http.Request) {
 	if pr != nil {
 		ref = pr.Head.Ref
 	}
-	commits, err := sc.gh.ListCommits(r.Context(), entryPath(col, slug), ref)
+	commits, err := sc.gh.ListCommits(r.Context(), col.Path(slug, loc), ref)
 	if err != nil {
 		fail(w, err)
 		return
@@ -769,7 +875,12 @@ func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid_slug", "invalid slug")
 		return
 	}
-	raw, _, err := sc.gh.GetFile(r.Context(), entryPath(col, slug), sha)
+	loc, ok := locale(w, r, col)
+	if !ok {
+		return
+	}
+	file := col.Path(slug, loc)
+	raw, _, err := sc.gh.GetFile(r.Context(), file, sha)
 	if err != nil {
 		fail(w, err)
 		return
@@ -780,7 +891,7 @@ func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data[content.BodyField] = body
-	patch, err := sc.gh.CommitPatch(r.Context(), sha, entryPath(col, slug))
+	patch, err := sc.gh.CommitPatch(r.Context(), sha, file)
 	if err != nil {
 		fail(w, err)
 		return
