@@ -29,6 +29,7 @@ The *go* has a double meaning: it is also there because the Sumigo server is wri
 - 🌍 **Any Git forge**: GitHub (and Enterprise Server), GitLab (subgroups included), Forgejo, Gitea and Codeberg.
 - 📝 **Drafts as pull requests**: "Save draft" opens a pull request, "Publish" squash-merges it, or **schedule** it and the server publishes it on time.
 - 💾 **Autosave**: the form is saved every few seconds, without any commit, and offered back on the next visit.
+- ⚡ **Fast lists**: a collection is read from the forge once, then served from memory until its branch moves, so big collections and slow forges stay quick.
 - 🕰️ **History**: compare every version of an entry with a diff, and restore one in a click.
 - 🔎 **SEO**: declare the SEO fields of a collection and get a live score, the checks to fix and a Google result preview while writing.
 - 🤖 **AI assistant** (optional): field suggestions, a whole article from a brief, reviewable proofreading. Anthropic, OpenAI, Mistral, Gemini, OpenRouter or any OpenAI-compatible API, Ollama included.

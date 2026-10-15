@@ -12,3 +12,13 @@ Each site picks its forge and, when self-hosted, the instance URL (`https://git.
 - **Forgejo / Gitea** (Codeberg included): an access token with **repository: read and write**. The instance URL is required.
 
 Listing a collection takes one GraphQL call on GitHub, and one call per entry on GitLab and Forgejo / Gitea (8 in parallel).
+
+## Collection cache
+
+The server keeps each collection in memory once it has been read. The next lists only ask the forge for the head commit of the site branch and the open drafts: two light calls, whatever the size of the collection and the forge. The collection is read again when:
+
+- the branch moves: a commit from Sumigo, a push to the repository, a merged pull request;
+- a draft is opened, closed or updated;
+- the collection changes in `sumigo.yml`.
+
+A push made outside of Sumigo shows up on the next list, without delay. The cache lives in the process memory: it is empty after a restart, and each instance keeps its own.
