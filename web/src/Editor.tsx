@@ -9,7 +9,7 @@ import { getCached, setCached, useCached } from './cache';
 import { diffText, Part } from './diff';
 import { Chevron } from './App';
 import { t } from './i18n';
-import { analyze, keywordsOf, slugify, Status } from './seo';
+import { analyze, fieldsText, keywordsOf, slugify, Status } from './seo';
 
 type Data = Record<string, unknown>;
 
@@ -415,7 +415,7 @@ export default function Editor() {
                   onRestore={readOnly ? undefined : restore}
                 />
               ) : panel === 'seo' && collection.seo ? (
-                <SEOPanel site={site} collection={collection.name} seo={collection.seo} titleField={collection.identifier_field || 'title'} slug={slug} data={data} />
+                <SEOPanel site={site} collection={collection.name} seo={collection.seo} fields={collection.fields} titleField={collection.identifier_field || 'title'} slug={slug} data={data} />
               ) : (
                 <Preview site={site} fields={collection.fields} titleField={collection.identifier_field || 'title'} data={data} />
               )}
@@ -470,6 +470,7 @@ function SEOPanel({
   site,
   collection,
   seo,
+  fields,
   titleField,
   slug,
   data,
@@ -477,6 +478,7 @@ function SEOPanel({
   site: SiteDetail;
   collection: string;
   seo: NonNullable<Collection['seo']>;
+  fields: Field[];
   titleField: string;
   slug?: string;
   data: Data;
@@ -486,7 +488,10 @@ function SEOPanel({
   const description = seo.description ? str(seo.description) : undefined;
   const entrySlug = slug ?? slugify(title);
   const keywords = keywordsOf(seo.keywords ? data[seo.keywords] : undefined);
-  const r = analyze({ title, description, keywords, slug: seo.slug ? entrySlug : undefined, body: str('body'), image: seo.image ? str(seo.image) : null });
+  // Without a Markdown body, the text of the page is in its fields.
+  const fromFields = !fields.some((f) => f.name === 'body');
+  const body = fromFields ? fieldsText(fields, data, [seo.title, seo.description, seo.keywords, seo.image]) : str('body');
+  const r = analyze({ title, description, keywords, slug: seo.slug ? entrySlug : undefined, body, image: seo.image ? str(seo.image) : null, fromFields });
   const overall: Status = r.score >= 80 ? 'good' : r.score >= 50 ? 'warn' : 'bad';
   const groups = (['bad', 'warn', 'good'] as const).map((status) => ({ status, checks: r.checks.filter((c) => c.status === status) })).filter((g) => g.checks.length);
   const groupTitle = { bad: 'Problems', warn: 'To improve', good: 'Passed' } as const;

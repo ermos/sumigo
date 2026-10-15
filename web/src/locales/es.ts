@@ -440,4 +440,5 @@ export const es: Record<keyof typeof fr, string> = {
   'Home page': 'Inicio',
   '{n} files': '{n} archivos',
   'File': 'Archivo',
+  'Content: {n} words, 300 or more recommended.': 'Contenido: {n} palabras, 300 o más recomendadas.',
 };

@@ -17,6 +17,8 @@ export interface SEOInput {
   slug?: string; // undefined when the slug is not checked
   body: string;
   image?: string | null; // null when the collection has no image field
+  // fromFields: the entry has no Markdown body, its text comes from its fields (see fieldsText), like a landing page.
+  fromFields?: boolean;
 }
 
 export interface SEOResult {
@@ -92,6 +94,13 @@ export function analyze(input: SEOInput): SEOResult {
     else add('good', 'Focus keyword density: {d}%.', { d });
   }
 
+  // A page whose layout lives in the site code is shorter than an article, and its headings and links are not in the text.
+  if (input.fromFields) {
+    add(words.length >= 300 ? 'good' : words.length >= 150 ? 'warn' : 'bad', 'Content: {n} words, 300 or more recommended.', { n: words.length });
+    if (input.image !== null && input.image !== undefined) add(input.image ? 'good' : 'warn', input.image ? 'Share image set.' : 'No share image: social networks will pick one.');
+    const points = checks.reduce((s, c) => s + (c.status === 'good' ? 1 : c.status === 'warn' ? 0.5 : 0), 0);
+    return { checks, score: Math.round((points * 100) / checks.length), words: words.length, density };
+  }
   add(words.length >= 600 ? 'good' : words.length >= 300 ? 'warn' : 'bad', 'Content: {n} words, 600 or more recommended.', { n: words.length });
   const h2 = (input.body.match(/^#{2,3}\s+\S/gm) ?? []).length;
   add(h2 ? 'good' : 'warn', 'Subheadings (H2, H3): {n}.', { n: h2 });
@@ -106,6 +115,16 @@ export function analyze(input: SEOInput): SEOResult {
   const points = checks.reduce((s, c) => s + (c.status === 'good' ? 1 : c.status === 'warn' ? 0.5 : 0), 0);
   return { checks, score: Math.round((points * 100) / checks.length), words: words.length, density };
 }
+
+// fieldsText gathers the text of an entry without a Markdown body: its text fields and the texts of its lists, in order.
+// skip names the fields that are not content, like the SEO title and description.
+export const fieldsText = (fields: { name: string; widget: string }[], data: Record<string, unknown>, skip: (string | undefined)[]) => {
+  const texts = (v: unknown): string[] => (typeof v === 'string' ? [v] : Array.isArray(v) ? v.flatMap(texts) : v && typeof v === 'object' ? Object.values(v).flatMap(texts) : []);
+  return fields
+    .filter((f) => ['string', 'text', 'list', 'object'].includes(f.widget) && !skip.includes(f.name))
+    .flatMap((f) => texts(data[f.name]))
+    .join('\n\n');
+};
 
 // slugify approximates the slug the server builds from the title, for entries not saved yet.
 export const slugify = (s: string) =>
