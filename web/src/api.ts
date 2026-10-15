@@ -29,9 +29,12 @@ export interface Field {
   value_field?: string;
   display_fields?: string[];
   multiple?: boolean;
-  // i18n: true is translated, 'duplicate' is copied from the default locale. Other fields only live in the default locale.
+  // i18n: true is translated, false only lives in the default locale. Unset or 'duplicate', it is copied from the default locale.
   i18n?: boolean | 'translate' | 'duplicate' | 'none';
 }
+
+// fieldI18n tells how a field of a translated collection behaves in the translations of an entry.
+export const fieldI18n = (f: { i18n?: unknown }): 'translate' | 'duplicate' | 'none' => (f.i18n === true || f.i18n === 'translate' ? 'translate' : f.i18n === false || f.i18n === 'none' ? 'none' : 'duplicate');
 
 export interface Collection {
   name: string;

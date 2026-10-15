@@ -2,7 +2,7 @@ import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffe
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, fieldI18n, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, fetchEntries, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
 import { Pending, Spinner } from './ui';
 import { getCached, setCached, useCached } from './cache';
@@ -77,7 +77,7 @@ export default function Editor() {
         const def = await api<Entry>('GET', url).catch(() => null);
         if (!live || edited.current) return;
         const start: Data = {};
-        collection?.fields.forEach((f) => f.i18n === 'duplicate' && def?.data[f.name] !== undefined && (start[f.name] = def.data[f.name]));
+        collection?.fields.forEach((f) => fieldI18n(f) === 'duplicate' && def?.data[f.name] !== undefined && (start[f.name] = def.data[f.name]));
         setData(start);
         setDraft(def?.draft ?? null);
       });
@@ -259,7 +259,7 @@ export default function Editor() {
     leaveDialog.current?.showModal();
   };
   // A translation only shows its translated and duplicated fields.
-  const fields = locale ? collection.fields.filter((f) => f.i18n === true || f.i18n === 'translate' || f.i18n === 'duplicate') : collection.fields;
+  const fields = locale ? collection.fields.filter((f) => fieldI18n(f) !== 'none') : collection.fields;
 
   return (
     <form ref={form} onSubmit={save} className="flex h-screen flex-col">

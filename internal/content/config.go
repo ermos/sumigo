@@ -49,7 +49,10 @@ type Collection struct {
 	// SEO turns on the SEO analysis of the entries and names the fields playing each role. The body is always analyzed.
 	SEO *SEO `yaml:"seo,omitempty" json:"seo,omitempty"`
 	// I18n stores each entry once per locale. Locales is filled from the top-level i18n, default locale first.
-	I18n      bool     `yaml:"i18n,omitempty" json:"i18n,omitempty"`
+	I18n bool `yaml:"i18n,omitempty" json:"i18n,omitempty"`
+	// I18nKey names the front matter field pairing the translations of an entry, so each locale keeps its own file name.
+	// Without it, translations share the file name of the default entry, like Decap.
+	I18nKey   string   `yaml:"i18n_key,omitempty" json:"i18n_key,omitempty"`
 	Locales   []string `yaml:"-" json:"locales,omitempty"`
 	structure string
 }
@@ -78,14 +81,14 @@ type Field struct {
 	ValueField    string   `yaml:"value_field,omitempty" json:"value_field,omitempty"`
 	DisplayFields []string `yaml:"display_fields,omitempty" json:"display_fields,omitempty"`
 	Multiple      bool     `yaml:"multiple,omitempty" json:"multiple,omitempty"`
-	// I18n is true (or Decap's "translate") for a translated field, "duplicate" for one copied from the default locale.
-	// Other fields only live in the default locale.
+	// I18n is true (or Decap's "translate") for a translated field, false (or "none") for one living only in the
+	// default locale. Unset, or "duplicate", the field is copied from the default locale into new translations.
 	I18n any `yaml:"i18n,omitempty" json:"i18n,omitempty"`
 }
 
 // Translatable reports whether the field shows in the translations of an entry.
 func (f Field) Translatable() bool {
-	return f.I18n == true || f.I18n == "translate" || f.I18n == "duplicate"
+	return f.I18n != false && f.I18n != "none"
 }
 
 // IsRequired follows Decap: fields are required unless `required: false`.
@@ -132,6 +135,14 @@ func (c Collection) Path(slug, locale string) string {
 	return path.Join(dir, slug+suffix)
 }
 
+// TranslationKey is what pairs an entry with its translations: its I18nKey field, or its slug.
+func (c Collection) TranslationKey(slug string, data map[string]any) string {
+	if k, ok := data[c.I18nKey].(string); ok && c.I18nKey != "" && k != "" {
+		return k
+	}
+	return slug
+}
+
 func (c Collection) TitleField() string {
 	if c.IdentifierField != "" {
 		return c.IdentifierField
@@ -160,6 +171,9 @@ func ParseConfig(raw []byte) (*Config, error) {
 			}
 			c.structure = cfg.I18n.Structure
 			c.Locales = append([]string{cfg.I18n.DefaultLocale}, slices.DeleteFunc(slices.Clone(cfg.I18n.Locales), func(l string) bool { return l == cfg.I18n.DefaultLocale })...)
+		}
+		if c.I18nKey != "" && !c.I18n {
+			return nil, fmt.Errorf("collection %s: i18n_key needs i18n: true", c.Name)
 		}
 		if c.Name == "" || strings.ContainsAny(c.Name, `/\`) {
 			return nil, errors.New("collection names must be set and contain no slash")

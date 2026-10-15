@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -42,6 +43,8 @@ type fakeGitHub struct {
 	pulls string
 	// config, when set, replaces testConfig.
 	config string
+	// files, when set, holds the repository: its files are served, and listed by GraphQL folder reads.
+	files map[string]string
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +57,17 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var body struct{ Variables map[string]any }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.graphql = body.Variables
+		if f.files != nil {
+			_, dir, _ := strings.Cut(body.Variables["dir"].(string), ":")
+			entries := []map[string]any{}
+			for name, text := range f.files {
+				if path.Dir(name) == dir {
+					entries = append(entries, map[string]any{"name": path.Base(name), "type": "blob", "object": map[string]string{"text": text}})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"repository": map[string]any{"dir": map[string]any{"entries": entries}}}})
+			return
+		}
 		_, _ = w.Write([]byte(`{"data":{"repository":{
 			"dir":{"entries":[{"name":"old.md","type":"blob","object":{"text":"---\ntitle: Old post\ncover: /static/img/cat.svg\n---\n"}},{"name":"img","type":"tree","object":{}}]},
 			"e0":{"text":"---\ntitle: Draft post\n---\n"}}}}`))
@@ -63,6 +77,8 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			cfg = f.config
 		}
 		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(cfg)), "sha": "c1"})
+	case r.Method == http.MethodGet && f.files[strings.TrimPrefix(p, "/contents/")] != "":
+		_ = json.NewEncoder(w).Encode(map[string]string{"content": base64.StdEncoding.EncodeToString([]byte(f.files[strings.TrimPrefix(p, "/contents/")])), "sha": "s1"})
 	case r.Method == http.MethodGet && p == "/pulls" && f.pulls != "":
 		_, _ = w.Write([]byte(f.pulls))
 	case r.Method == http.MethodGet && p == "/pulls" && len(f.writes) > 0:
@@ -818,7 +834,7 @@ collections:
     i18n: true
     fields:
       - {name: title, widget: string, i18n: true}
-      - {name: date, widget: date}
+      - {name: date, widget: date, i18n: false}
 `}
 	a, st := newTestAPI(t, gh)
 	srv := httptest.NewServer(a.Handler())
@@ -856,5 +872,76 @@ collections:
 	}
 	if code := put(""); code != http.StatusBadRequest {
 		t.Fatalf("the default locale still requires its date: %d", code)
+	}
+}
+
+// With i18n_key, translations keep their own file names and are paired by that front matter field.
+func TestTranslationsArePairedByKey(t *testing.T) {
+	gh := &fakeGitHub{config: `
+i18n: { locales: [en, fr] }
+collections:
+  - name: posts
+    folder: content/posts
+    i18n: true
+    i18n_key: translationKey
+    fields:
+      - {name: title, widget: string, i18n: true}
+`, files: map[string]string{
+		"content/posts/en/hello.md":   "---\ntitle: Hello\ntranslationKey: k1\n---\n",
+		"content/posts/en/other.md":   "---\ntitle: Other\ntranslationKey: k2\n---\n",
+		"content/posts/fr/bonjour.md": "---\ntitle: Bonjour\ntranslationKey: k1\n---\n",
+	}}
+	a, st := newTestAPI(t, gh)
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RoleEditor}}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(jane.ID, time.Hour)
+	do := func(method, url, body string) *http.Response {
+		req, _ := http.NewRequest(method, srv.URL+"/api/sites/1/collections/posts/entries"+url, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	var list []entrySummary
+	_ = json.NewDecoder(do(http.MethodGet, "", "").Body).Decode(&list)
+	locales := map[string][]string{}
+	for _, e := range list {
+		locales[e.Slug] = e.Locales
+	}
+	if fmt.Sprint(locales) != "map[hello:[en fr] other:[en]]" {
+		t.Fatalf("locales: %v", locales)
+	}
+	var got struct{ Data map[string]any }
+	_ = json.NewDecoder(do(http.MethodGet, "/hello?locale=fr", "").Body).Decode(&got)
+	if got.Data["title"] != "Bonjour" {
+		t.Fatalf("translation read: %v", got.Data)
+	}
+
+	if res := do(http.MethodPut, "/hello?locale=fr", `{"data":{"title":"Bonjour !"},"publish":true}`); res.StatusCode != http.StatusOK {
+		t.Fatalf("update: %d", res.StatusCode)
+	}
+	if res := do(http.MethodPut, "/other?locale=fr", `{"data":{"title":"Autre chose"},"publish":true}`); res.StatusCode != http.StatusOK {
+		t.Fatalf("create: %d", res.StatusCode)
+	}
+	if fmt.Sprint(gh.writes) != "[PUT /contents/content/posts/fr/bonjour.md PUT /contents/content/posts/fr/autre-chose.md]" {
+		t.Fatalf("writes: %v", gh.writes)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(gh.bodies[1]["content"].(string))
+	if !strings.Contains(string(raw), "translationKey: k2") {
+		t.Fatalf("a new translation carries the key of its entry: %s", raw)
 	}
 }

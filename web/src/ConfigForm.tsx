@@ -3,9 +3,10 @@ import { Document } from 'yaml';
 import { editor, Edit, Path } from './configedit';
 import { widgets } from './yamlcomplete';
 import { lang, t } from './i18n';
+import { fieldI18n } from './api';
 
 type Field = { name?: string; label?: string; widget?: string; required?: boolean; options?: unknown[]; fields?: Field[]; collection?: string; value_field?: string; display_fields?: string[]; multiple?: boolean; i18n?: unknown };
-type Collection = { name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
+type Collection = { i18n_key?: string; name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
 type Config = { media_folder?: string; public_folder?: string; i18n?: { structure?: string; locales?: string[]; default_locale?: string }; collections?: Collection[] };
 
 const Text = ({ label, value, onChange, placeholder }: { label: string; value?: string; onChange: (v: string) => void; placeholder?: string }) => (
@@ -76,7 +77,6 @@ const Arrows = ({ edit, path, i, n }: { edit: Edit; path: Path; i: number; n: nu
 );
 
 const fieldNames = (fields?: Field[]): [string, string][] => [['', '-'], ...(fields ?? []).filter((f) => f.name).map((f): [string, string] => [f.name!, f.label || f.name!])];
-const i18nValue = (v: unknown) => (v === true || v === 'translate' ? 'translate' : v === 'duplicate' ? 'duplicate' : '');
 
 function Fields({ edit, path, fields, cfg, translated }: { edit: Edit; path: Path; fields?: Field[]; cfg: Config; translated: boolean }) {
   const list = fields ?? [];
@@ -101,10 +101,10 @@ function Fields({ edit, path, fields, cfg, translated }: { edit: Edit; path: Pat
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <Check label={t('Required')} checked={f.required !== false} onChange={(v) => set('required', v ? undefined : false)} />
               {translated && (
-                <select className="field w-auto" aria-label={t('Translation')} value={i18nValue(f.i18n)} onChange={(e) => set('i18n', e.target.value === 'translate' ? true : e.target.value)}>
-                  <option value="">{t('Default locale only')}</option>
-                  <option value="translate">{t('Translated')}</option>
+                <select className="field w-auto" aria-label={t('Translation')} value={fieldI18n(f)} onChange={(e) => set('i18n', { translate: true, none: false, duplicate: undefined }[e.target.value])}>
                   <option value="duplicate">{t('Copied to every locale')}</option>
+                  <option value="translate">{t('Translated')}</option>
+                  <option value="none">{t('Default locale only')}</option>
                 </select>
               )}
             </div>
@@ -157,6 +157,11 @@ function CollectionForm({ edit, c, i, n, cfg, open }: { edit: Edit; c: Collectio
           <Check label={t('New entries allowed')} checked={c.create !== false} onChange={(v) => set('create', v ? undefined : false)} />
           <Check label={t('Translated')} checked={!!c.i18n} onChange={(v) => set('i18n', v || undefined)} />
         </div>
+        {c.i18n && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Text label={t('Translation key field')} value={c.i18n_key} placeholder={t('Same file name')} onChange={(v) => set('i18n_key', v)} />
+          </div>
+        )}
         <div className="flex flex-col gap-3">
           <h3 className="text-[13px] font-semibold">{t('Fields')}</h3>
           <Fields edit={edit} path={[...at, 'fields']} fields={c.fields} cfg={cfg} translated={!!c.i18n} />
