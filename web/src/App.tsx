@@ -111,7 +111,7 @@ export default function App() {
 export function Monogram({ name }: { name: string }) {
   const hue = [...name].reduce((h, c) => h + c.charCodeAt(0), 0) % 360;
   return (
-    <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white" style={{ background: `oklch(0.55 0.15 ${hue})` }}>
+    <span aria-hidden className="grid size-5 shrink-0 place-items-center rounded-md text-[11px] leading-none font-semibold text-white [text-box:trim-both_cap_alphabetic]" style={{ background: `oklch(0.55 0.15 ${hue})` }}>
       {name.charAt(0).toUpperCase()}
     </span>
   );
