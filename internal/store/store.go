@@ -132,6 +132,7 @@ func (s *Store) CreateUser(u *User, password string) error {
 }
 
 // UpdateUser updates profile fields, and the password when non-empty (with MustChangePassword).
+// A new password logs the user out everywhere: a stolen session must not outlive it.
 func (s *Store) UpdateUser(u *User, password string) error {
 	u.normalizeNames()
 	if _, err := s.db.Exec(`UPDATE users SET email = ?, name = ?, first_name = ?, last_name = ?, is_admin = ? WHERE id = ?`,
@@ -145,7 +146,10 @@ func (s *Store) UpdateUser(u *User, password string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?`, string(hash), u.MustChangePassword, u.ID)
+	if _, err = s.db.Exec(`UPDATE users SET password_hash = ?, must_change_password = ? WHERE id = ?`, string(hash), u.MustChangePassword, u.ID); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, u.ID)
 	return err
 }
 

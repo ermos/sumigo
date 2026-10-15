@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -562,6 +563,7 @@ func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 		t.Fatalf("created: %s", body)
 	}
 	jane := login(created.TemporaryPassword)
+	otherDevice := login(created.TemporaryPassword)
 	if code, body := call(jane, http.MethodGet, "/api/sites", ""); code != http.StatusForbidden || !strings.Contains(body, "password_change_required") {
 		t.Fatalf("temporary password opened the app: %d %s", code, body)
 	}
@@ -572,8 +574,22 @@ func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 		t.Fatalf("short password accepted: %d", code)
 	}
 	// No current password needed to replace the temporary one.
-	if code, body := call(jane, http.MethodPost, "/api/me/password", `{"password":"my-own-secret"}`); code != http.StatusOK {
-		t.Fatalf("change: %d %s", code, body)
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/me/password", strings.NewReader(`{"password":"my-own-secret"}`))
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: jane})
+	res, err := http.DefaultClient.Do(req)
+	if err != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("change: %v %v", err, res.StatusCode)
+	}
+	// The new password closes every session and opens a fresh one on this browser.
+	for _, old := range []string{jane, otherDevice} {
+		if code, _ := call(old, http.MethodGet, "/api/me", ""); code != http.StatusUnauthorized {
+			t.Fatalf("session opened before the password change still works: %d", code)
+		}
+	}
+	for _, c := range res.Cookies() {
+		if c.Name == sessionCookie {
+			jane = c.Value
+		}
 	}
 	if code, _ := call(jane, http.MethodGet, "/api/sites", ""); code != http.StatusOK {
 		t.Fatalf("app still locked: %d", code)
@@ -584,6 +600,14 @@ func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 	// From now on, changing it asks for the current one.
 	if code, _ := call(jane, http.MethodPost, "/api/me/password", `{"current":"wrong","password":"another-secret"}`); code != http.StatusBadRequest {
 		t.Fatalf("changed without the current password: %d", code)
+	}
+	// A reset by an admin logs the user out too.
+	u, _ := st.UserByEmail("jane@acme.io")
+	if code, body := call(adminToken, http.MethodPut, fmt.Sprintf("/api/users/%d", u.ID), `{"email":"jane@acme.io","first_name":"Jane","password":"reset-by-admin"}`); code != http.StatusOK {
+		t.Fatalf("reset: %d %s", code, body)
+	}
+	if code, _ := call(jane, http.MethodGet, "/api/me", ""); code != http.StatusUnauthorized {
+		t.Fatalf("session survived an admin reset: %d", code)
 	}
 }
 

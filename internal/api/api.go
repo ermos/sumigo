@@ -312,6 +312,13 @@ func (a *API) saveUser(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	// An admin who resets their own password keeps this session, like changePassword.
+	if u.ID == userFrom(r).ID && in.Password != "" {
+		if err := a.startSession(w, &u); err != nil {
+			fail(w, err)
+			return
+		}
+	}
 	if !in.Temporary {
 		writeJSON(w, u)
 		return
@@ -375,6 +382,11 @@ func (a *API) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	u.MustChangePassword = false
 	if err := a.Store.UpdateUser(u, in.Password); err != nil {
+		fail(w, err)
+		return
+	}
+	// The new password closed every session, this one included: open a fresh one here.
+	if err := a.startSession(w, u); err != nil {
 		fail(w, err)
 		return
 	}
