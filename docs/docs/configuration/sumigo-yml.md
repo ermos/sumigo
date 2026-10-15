@@ -143,7 +143,7 @@ Creating an entry whose slug already exists (published or as an open draft) is r
 
 ### SEO
 
-A collection with a `seo` block gets an **SEO** tab in the editor, next to Preview and History. It scores the entry as it is typed and shows how it looks in Google. The block names the fields playing each role; the `body` is always analyzed.
+A collection with a `seo` block gets an **SEO** tab in the editor, next to Preview and History. It scores the entry as it is typed and shows how it looks in Google. The block names the fields playing each role; the `body` is always analyzed. An entry without a `body` field, like a page whose layout lives in the site code, is analyzed from the text of its fields and lists instead: headings and links are then left out, and 300 words are enough.
 
 ```yaml
 collections:

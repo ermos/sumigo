@@ -438,4 +438,5 @@ export const fr = {
   'Home page': 'Accueil',
   '{n} files': '{n} fichiers',
   'File': 'Fichier',
+  'Content: {n} words, 300 or more recommended.': 'Contenu : {n} mots, 300 ou plus recommandés.',
 };

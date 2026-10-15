@@ -1,7 +1,7 @@
 // Run with: npm test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analyze, keywordsOf } from './seo.ts';
+import { analyze, fieldsText, keywordsOf } from './seo.ts';
 
 const statusOf = (r: ReturnType<typeof analyze>, message: string) => r.checks.find((c) => c.message === message)?.status;
 
@@ -37,4 +37,15 @@ test('missing keyword, short content and images without alt are flagged', () => 
 test('a keyword is matched as whole words only', () => {
   const r = analyze({ title: 'A party', keywords: ['art'], body: 'party', image: null });
   assert.equal(statusOf(r, 'Focus keyword in the title.'), 'bad');
+});
+
+test('an entry without body is analyzed from its fields, without the Markdown checks', () => {
+  const fields = [{ name: 'seo_title', widget: 'string' }, { name: 'lede', widget: 'text' }, { name: 'faq', widget: 'list' }, { name: 'cover', widget: 'image' }];
+  const data = { seo_title: 'Padel au Mans', lede: 'Le padel au Mans, dix terrains.', faq: [{ question: 'Où jouer au padel ?', reponse: 'Au Mans.' }], cover: '/padel.jpg' };
+  const body = fieldsText(fields, data, ['seo_title']);
+  assert.equal(body, 'Le padel au Mans, dix terrains.\n\nOù jouer au padel ?\n\nAu Mans.');
+  const r = analyze({ title: 'Padel au Mans', keywords: ['padel au Mans'], body, image: null, fromFields: true });
+  assert.equal(statusOf(r, 'Focus keyword in the introduction (first 100 words).'), 'good');
+  assert.equal(statusOf(r, 'Subheadings (H2, H3): {n}.'), undefined);
+  assert.equal(statusOf(r, 'Content: {n} words, 300 or more recommended.'), 'bad');
 });
