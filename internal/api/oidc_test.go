@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -126,5 +127,40 @@ func TestOriginFollowsTheRequestNotTheCookieSetting(t *testing.T) {
 	r.Header.Set("X-Forwarded-Proto", "https")
 	if got := a.origin(r); got != "https://cms.acme.io" {
 		t.Fatalf("behind a TLS proxy = %s", got)
+	}
+}
+
+func TestOIDCBindsAccountsToTheProviderIdentity(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	root := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(root, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	o := store.OIDCSettings{AutoCreate: true}
+	login := func(sub, email string, verified bool) (*store.User, error) {
+		return a.oidcUser(o, oidcIdentity{Subject: "https://idp " + sub, Email: email, EmailVerified: verified})
+	}
+
+	// An unverified email (Entra ID sends none) must not open an existing account.
+	if _, err := login("attacker", "root@acme.io", false); !errors.Is(err, errOIDCUnverified) {
+		t.Fatalf("unverified email opened the admin account: %v", err)
+	}
+	if u, err := login("root", "root@acme.io", true); err != nil || u.ID != root.ID {
+		t.Fatalf("verified email: %+v %v", u, err)
+	}
+	// Once bound, the subject opens the account, even if the email changed at the provider.
+	if u, err := login("root", "renamed@acme.io", false); err != nil || u.ID != root.ID {
+		t.Fatalf("bound subject: %+v %v", u, err)
+	}
+	if _, err := login("other", "root@acme.io", true); !errors.Is(err, errOIDCOtherIdentity) {
+		t.Fatalf("another identity opened a bound account: %v", err)
+	}
+	// A new account can come from an unverified email, and is bound right away.
+	u, err := login("jane", "jane@acme.io", false)
+	if err != nil || u.IsAdmin {
+		t.Fatalf("auto-create: %+v %v", u, err)
+	}
+	if again, err := login("jane", "jane@acme.io", false); err != nil || again.ID != u.ID {
+		t.Fatalf("auto-created account not bound: %+v %v", again, err)
 	}
 }

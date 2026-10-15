@@ -46,6 +46,8 @@ type User struct {
 	PasswordHash string `json:"-"`
 	// MustChangePassword is set with a temporary password: nothing but choosing a new one is allowed.
 	MustChangePassword bool `json:"must_change_password"`
+	// OIDCSubject is the provider identity bound at the first single sign-on, empty before.
+	OIDCSubject string `json:"-"`
 }
 
 type Site struct {
@@ -173,8 +175,8 @@ func (s *Store) ListUsers() ([]User, error) {
 
 func (s *Store) userWhere(where string, arg any) (*User, error) {
 	var u User
-	err := s.db.QueryRow(`SELECT id, email, name, first_name, last_name, is_admin, password_hash, must_change_password FROM users WHERE `+where, arg).
-		Scan(&u.ID, &u.Email, &u.Name, &u.FirstName, &u.LastName, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword)
+	err := s.db.QueryRow(`SELECT id, email, name, first_name, last_name, is_admin, password_hash, must_change_password, COALESCE(oidc_subject, '') FROM users WHERE `+where, arg).
+		Scan(&u.ID, &u.Email, &u.Name, &u.FirstName, &u.LastName, &u.IsAdmin, &u.PasswordHash, &u.MustChangePassword, &u.OIDCSubject)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -186,6 +188,17 @@ func (s *Store) UserByID(id int64) (*User, error) { return s.userWhere("id = ?",
 // UserByEmail ignores case: identity providers do not always keep the case the admin typed.
 func (s *Store) UserByEmail(email string) (*User, error) {
 	return s.userWhere("lower(email) = lower(?)", email)
+}
+
+// UserByOIDCSubject returns the user bound to a provider identity.
+func (s *Store) UserByOIDCSubject(subject string) (*User, error) {
+	return s.userWhere("oidc_subject = ?", subject)
+}
+
+// BindOIDCSubject ties a user to a provider identity: from then on, only it opens the account.
+func (s *Store) BindOIDCSubject(id int64, subject string) error {
+	_, err := s.db.Exec(`UPDATE users SET oidc_subject = ? WHERE id = ?`, subject, id)
+	return err
 }
 
 // Authenticate returns the user matching email and password.

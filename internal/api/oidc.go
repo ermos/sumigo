@@ -185,9 +185,22 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		loginError(w, r, "oidc_email")
 		return
 	}
-	u, err := a.oidcUser(o, claims.Email, store.User{Name: claims.Name, FirstName: claims.GivenName, LastName: claims.FamilyName}, claims.Groups)
+	id := oidcIdentity{
+		Subject: idt.Issuer + " " + idt.Subject, Email: claims.Email,
+		EmailVerified: claims.EmailVerified != nil && *claims.EmailVerified, Groups: claims.Groups,
+		Names: store.User{Name: claims.Name, FirstName: claims.GivenName, LastName: claims.FamilyName},
+	}
+	u, err := a.oidcUser(o, id)
 	if errors.Is(err, store.ErrNotFound) {
 		loginError(w, r, "oidc_unknown_user")
+		return
+	}
+	if errors.Is(err, errOIDCUnverified) {
+		loginError(w, r, "oidc_email")
+		return
+	}
+	if errors.Is(err, errOIDCOtherIdentity) {
+		loginError(w, r, "oidc_failed")
 		return
 	}
 	if err != nil {
@@ -201,22 +214,52 @@ func (a *API) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-// oidcUser finds the Sumigo user of an email, creates it when allowed, and syncs admin rights with the admin group.
-// names holds the name claims: given and family names, or the full name only.
-func (a *API) oidcUser(o store.OIDCSettings, email string, names store.User, groups []string) (*store.User, error) {
-	u, err := a.Store.UserByEmail(email)
-	if errors.Is(err, store.ErrNotFound) && o.AutoCreate {
-		u = &store.User{Email: email, Name: names.Name, FirstName: names.FirstName, LastName: names.LastName}
-		if u.Name == "" && u.FirstName == "" {
-			u.Name, _, _ = strings.Cut(email, "@")
+// oidcIdentity is who the provider says logged in.
+type oidcIdentity struct {
+	// Subject is "issuer sub": the stable identity, unlike the email some providers let users change.
+	Subject       string
+	Email         string
+	EmailVerified bool
+	// Names holds the name claims: given and family names, or the full name only.
+	Names  store.User
+	Groups []string
+}
+
+var (
+	errOIDCUnverified    = errors.New("an existing account is only linked to a verified email")
+	errOIDCOtherIdentity = errors.New("this account is bound to another provider identity")
+)
+
+// oidcUser finds the Sumigo user of an identity, creates it when allowed, and syncs admin rights with the admin group.
+// The first login binds the account to the subject; an existing account is only bound through a verified email,
+// so an identity claiming someone else's email (unverified, as Entra ID sends it) cannot take their account.
+func (a *API) oidcUser(o store.OIDCSettings, id oidcIdentity) (*store.User, error) {
+	u, err := a.Store.UserByOIDCSubject(id.Subject)
+	if errors.Is(err, store.ErrNotFound) {
+		u, err = a.Store.UserByEmail(id.Email)
+		switch {
+		case err == nil && u.OIDCSubject != "":
+			return nil, errOIDCOtherIdentity
+		case err == nil && !id.EmailVerified:
+			return nil, errOIDCUnverified
+		case err == nil:
+			err = a.Store.BindOIDCSubject(u.ID, id.Subject)
+		case errors.Is(err, store.ErrNotFound) && o.AutoCreate:
+			n := id.Names
+			u = &store.User{Email: id.Email, Name: n.Name, FirstName: n.FirstName, LastName: n.LastName}
+			if u.Name == "" && u.FirstName == "" {
+				u.Name, _, _ = strings.Cut(id.Email, "@")
+			}
+			// The password is random and never shown: this user logs in with the provider.
+			if err = a.Store.CreateUser(u, randomString()); err == nil {
+				err = a.Store.BindOIDCSubject(u.ID, id.Subject)
+			}
 		}
-		// The password is random and never shown: this user logs in with the provider.
-		err = a.Store.CreateUser(u, randomString())
 	}
 	if err != nil {
 		return nil, err
 	}
-	if admin := slices.Contains(groups, o.AdminGroup); o.AdminGroup != "" && admin != u.IsAdmin {
+	if admin := slices.Contains(id.Groups, o.AdminGroup); o.AdminGroup != "" && admin != u.IsAdmin {
 		u.IsAdmin = admin
 		err = a.Store.UpdateUser(u, "")
 	}
