@@ -110,3 +110,22 @@ func TestI18nPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestFilesCollectionsResolveTheirFiles(t *testing.T) {
+	cfg, err := ParseConfig([]byte("collections:\n  - name: pages\n    files:\n      - {name: home, file: /src/pages/home.md, fields: [{name: title}]}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := cfg.Collections[0]
+	if e, ok := c.Entry("home"); !ok || c.Path("home", "") != "src/pages/home.md" || len(e.Fields) != 1 || *c.Create {
+		t.Fatalf("files collection: %+v", c)
+	}
+	if _, ok := c.Entry("nope"); ok {
+		t.Fatal("unknown file resolved")
+	}
+	for _, bad := range []string{"{name: a/b, file: x.md}", "{name: a, file: ../x.md}", "{name: a, file: \"\"}"} {
+		if _, err := ParseConfig([]byte("collections:\n  - name: pages\n    files: [" + bad + "]\n")); err == nil {
+			t.Fatalf("%s accepted", bad)
+		}
+	}
+}

@@ -69,7 +69,15 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					entries = append(entries, map[string]any{"name": path.Base(name), "type": "blob", "object": map[string]string{"text": text}})
 				}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"repository": map[string]any{"dir": map[string]any{"entries": entries}}}})
+			repo := map[string]any{"dir": map[string]any{"entries": entries}}
+			for k, v := range body.Variables {
+				if e, ok := v.(string); ok && strings.HasPrefix(k, "e") {
+					if _, p, _ := strings.Cut(e, ":"); f.files[p] != "" {
+						repo[k] = map[string]string{"text": f.files[p]}
+					}
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"repository": repo}})
 			return
 		}
 		_, _ = w.Write([]byte(`{"data":{"repository":{
@@ -1002,5 +1010,76 @@ func TestEntriesAreCachedUntilTheBranchMoves(t *testing.T) {
 	gh.mu.Unlock()
 	if got := list(); !strings.Contains(got, "Hello again") || gh.reads != 2 {
 		t.Fatalf("a push must refresh the list (%d reads): %s", gh.reads, got)
+	}
+}
+
+// A files collection lists its fixed files under their label, each edited with its own fields, never created nor deleted.
+func TestFilesCollectionsEditFixedFiles(t *testing.T) {
+	gh := &fakeGitHub{config: `
+collections:
+  - name: pages
+    label: Pages
+    files:
+      - name: home
+        label: Home page
+        file: src/content/pages/home.md
+        fields:
+          - {name: title, widget: string}
+          - {name: lede, widget: text}
+      - name: about
+        label: About
+        file: src/content/pages/about.md
+        fields:
+          - {name: intro, widget: text}
+`, files: map[string]string{"src/content/pages/home.md": "---\ntitle: Welcome\nlede: Hi\n---\n"}}
+	a, st := newTestAPI(t, gh)
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RolePublisher}}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(jane.ID, time.Hour)
+	do := func(method, url, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+"/api/sites/1/collections/pages/entries"+url, strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return res.StatusCode, string(b)
+	}
+
+	var list []entrySummary
+	_, raw := do(http.MethodGet, "", "")
+	_ = json.Unmarshal([]byte(raw), &list)
+	if len(list) != 2 || list[0].Title != "Home page" || list[0].Data["lede"] != "Hi" || list[1].Slug != "about" {
+		t.Fatalf("list: %s", raw)
+	}
+	if code, body := do(http.MethodGet, "/about", ""); code != http.StatusOK || !strings.Contains(body, `"data":{"body":""}`) {
+		t.Fatalf("a file not written yet opens empty: %d %s", code, body)
+	}
+	// Each file checks its own fields: about has no title.
+	if code, _ := do(http.MethodPut, "/about", `{"data":{"intro":"Us"},"publish":true}`); code != http.StatusOK {
+		t.Fatalf("save: %d", code)
+	}
+	if code, _ := do(http.MethodPut, "/home", `{"data":{"lede":"no title"},"publish":true}`); code != http.StatusBadRequest {
+		t.Fatalf("home requires its title: %d", code)
+	}
+	for _, c := range []struct{ method, url string }{{http.MethodPost, ""}, {http.MethodDelete, "/home"}, {http.MethodGet, "/contact"}} {
+		if code, _ := do(c.method, c.url, `{"data":{"title":"x"}}`); code != http.StatusForbidden && code != http.StatusNotFound {
+			t.Fatalf("%s %s: %d", c.method, c.url, code)
+		}
+	}
+	if fmt.Sprint(gh.writes) != "[PUT /contents/src/content/pages/about.md]" {
+		t.Fatalf("writes: %v", gh.writes)
 	}
 }

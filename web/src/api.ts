@@ -50,7 +50,15 @@ export interface Collection {
   // i18n stores each entry once per locale, the default locale first.
   i18n?: boolean;
   locales?: string[];
+  // files makes a collection of fixed files, each with its own fields: they are edited, never created nor deleted.
+  files?: { name: string; label?: string; file: string; fields: Field[] }[];
 }
+
+// entryCollection is the collection as one of its entries sees it: a file of a files collection brings its own fields.
+export const entryCollection = (c: Collection, slug?: string): Collection => {
+  const file = c.files?.find((f) => f.name === slug);
+  return file ? { ...c, fields: file.fields } : c;
+};
 
 export interface Config {
   media_folder: string;

@@ -6,7 +6,8 @@ import { lang, t } from './i18n';
 import { fieldI18n } from './api';
 
 type Field = { name?: string; label?: string; widget?: string; required?: boolean; options?: unknown[]; fields?: Field[]; collection?: string; value_field?: string; display_fields?: string[]; multiple?: boolean; i18n?: unknown };
-type Collection = { i18n_key?: string; name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
+type File = { name?: string; label?: string; file?: string; fields?: Field[] };
+type Collection = { files?: File[]; i18n_key?: string; name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
 type Config = { media_folder?: string; public_folder?: string; i18n?: { structure?: string; locales?: string[]; default_locale?: string }; collections?: Collection[] };
 
 const Text = ({ label, value, onChange, placeholder }: { label: string; value?: string; onChange: (v: string) => void; placeholder?: string }) => (
@@ -134,43 +135,102 @@ function Fields({ edit, path, fields, cfg, translated }: { edit: Edit; path: Pat
   );
 }
 
+// FilesForm edits the fixed files of a files collection, each with its own fields.
+function FilesForm({ edit, path, files, cfg }: { edit: Edit; path: Path; files: File[]; cfg: Config }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {files.map((f, k) => {
+        const at = [...path, k];
+        return (
+          <div key={k} className="flex flex-col gap-3 rounded-md border border-line p-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_2fr_auto]">
+              <Text label={t('Name')} value={f.name} placeholder="home" onChange={(v) => edit.set([...at, 'name'], v)} />
+              <Text label={t('Label')} value={f.label} placeholder={t('Home page')} onChange={(v) => edit.set([...at, 'label'], v)} />
+              <Text label={t('File')} value={f.file} placeholder="src/content/pages/home.md" onChange={(v) => edit.set([...at, 'file'], v)} />
+              <div className="flex items-end gap-1">
+                <Arrows edit={edit} path={path} i={k} n={files.length} />
+                <button type="button" className="btn btn-danger px-2" aria-label={t('Delete')} onClick={() => edit.del(at)}>
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="border-l-2 border-line pl-3">
+              <Fields edit={edit} path={[...at, 'fields']} fields={f.fields} cfg={cfg} translated={false} />
+            </div>
+          </div>
+        );
+      })}
+      <button type="button" className="btn self-start" onClick={() => edit.push(path, { name: '', file: '', fields: [{ name: 'title', label: 'Title', widget: 'string' }] })}>
+        {t('Add a file')}
+      </button>
+    </div>
+  );
+}
+
 function CollectionForm({ edit, c, i, n, cfg, open }: { edit: Edit; c: Collection; i: number; n: number; cfg: Config; open: boolean }) {
   const at: Path = ['collections', i];
   const set = (k: string, v: unknown) => edit.set([...at, k], v);
   const seo = c.seo ?? {};
+  // A files collection has no folder: each of its files brings its own fields.
+  const files = c.files;
+  const allFields = files ? files.flatMap((f) => f.fields ?? []) : c.fields;
+  const setKind = (kind: string) => {
+    if (kind === 'files') {
+      edit.set([...at, 'files'], [{ name: '', file: '', fields: c.fields ?? [] }]);
+      for (const k of ['fields', 'folder', 'extension', 'slug', 'create', 'i18n', 'i18n_key']) edit.del([...at, k]);
+    } else {
+      edit.set([...at, 'fields'], files?.[0]?.fields ?? [{ name: 'title', label: 'Title', widget: 'string' }]);
+      edit.del([...at, 'files']);
+    }
+  };
   return (
     <details open={open || undefined} className="panel group">
       <summary className="flex cursor-pointer items-center gap-3 px-5 py-3">
         <span className="font-semibold">{c.label || c.name || t('New collection')}</span>
-        <span className="truncate font-mono text-[12px] text-muted">{c.folder}</span>
+        <span className="truncate font-mono text-[12px] text-muted">{files ? t('{n} files', { n: files.length }) : c.folder}</span>
       </summary>
       <div className="flex flex-col gap-5 border-t border-line p-5">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Text label={t('Name')} value={c.name} placeholder="posts" onChange={(v) => set('name', v)} />
           <Text label={t('Label')} value={c.label} placeholder={t('Articles')} onChange={(v) => set('label', v)} />
-          <Text label={t('Folder')} value={c.folder} placeholder="content/posts" onChange={(v) => set('folder', v)} />
-          <Text label={t('Extension')} value={c.extension} placeholder="md" onChange={(v) => set('extension', v)} />
-          <Text label={t('File name')} value={c.slug} placeholder="{{slug}}" onChange={(v) => set('slug', v)} />
-          <Select label={t('Title field')} value={c.identifier_field} onChange={(v) => set('identifier_field', v)} options={fieldNames(c.fields)} />
+          <Select
+            label={t('Entries')}
+            value={files ? 'files' : 'folder'}
+            onChange={setKind}
+            options={[
+              ['folder', t('A folder of entries')],
+              ['files', t('Fixed files')],
+            ]}
+          />
+          {!files && (
+            <>
+              <Text label={t('Folder')} value={c.folder} placeholder="content/posts" onChange={(v) => set('folder', v)} />
+              <Text label={t('Extension')} value={c.extension} placeholder="md" onChange={(v) => set('extension', v)} />
+              <Text label={t('File name')} value={c.slug} placeholder="{{slug}}" onChange={(v) => set('slug', v)} />
+              <Select label={t('Title field')} value={c.identifier_field} onChange={(v) => set('identifier_field', v)} options={fieldNames(c.fields)} />
+            </>
+          )}
         </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          <Check label={t('New entries allowed')} checked={c.create !== false} onChange={(v) => set('create', v ? undefined : false)} />
-          <Check label={t('Translated')} checked={!!c.i18n} onChange={(v) => set('i18n', v || undefined)} />
-        </div>
-        {c.i18n && (
+        {!files && (
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <Check label={t('New entries allowed')} checked={c.create !== false} onChange={(v) => set('create', v ? undefined : false)} />
+            <Check label={t('Translated')} checked={!!c.i18n} onChange={(v) => set('i18n', v || undefined)} />
+          </div>
+        )}
+        {!files && c.i18n && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Text label={t('Translation key field')} value={c.i18n_key} placeholder={t('Same file name')} onChange={(v) => set('i18n_key', v)} />
           </div>
         )}
         <div className="flex flex-col gap-3">
-          <h3 className="text-[13px] font-semibold">{t('Fields')}</h3>
-          <Fields edit={edit} path={[...at, 'fields']} fields={c.fields} cfg={cfg} translated={!!c.i18n} />
+          <h3 className="text-[13px] font-semibold">{t(files ? 'Files' : 'Fields')}</h3>
+          {files ? <FilesForm edit={edit} path={[...at, 'files']} files={files} cfg={cfg} /> : <Fields edit={edit} path={[...at, 'fields']} fields={c.fields} cfg={cfg} translated={!!c.i18n} />}
         </div>
         <div className="flex flex-col gap-3">
           <h3 className="text-[13px] font-semibold">{t('SEO')}</h3>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             {(['title', 'description', 'keywords', 'image'] as const).map((k) => (
-              <Select key={k} label={t(k === 'title' ? 'Title' : k === 'description' ? 'Description' : k === 'keywords' ? 'Keywords' : 'Image')} value={seo[k] as string} onChange={(v) => edit.set([...at, 'seo', k], v)} options={fieldNames(c.fields)} />
+              <Select key={k} label={t(k === 'title' ? 'Title' : k === 'description' ? 'Description' : k === 'keywords' ? 'Keywords' : 'Image')} value={seo[k] as string} onChange={(v) => edit.set([...at, 'seo', k], v)} options={fieldNames(allFields)} />
             ))}
           </div>
           <Check label={t('Focus keyword in the URL')} checked={!!seo.slug} onChange={(v) => edit.set([...at, 'seo', 'slug'], v || undefined)} />

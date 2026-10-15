@@ -433,4 +433,11 @@ export const es: Record<keyof typeof fr, string> = {
   'Previous page': 'Página anterior',
   'Next page': 'Página siguiente',
   '{from}–{to} of {total}': '{from}–{to} de {total}',
+  'Fixed files': 'Archivos fijos',
+  'A folder of entries': 'Una carpeta de entradas',
+  'Entries': 'Entradas',
+  'Add a file': 'Añadir un archivo',
+  'Home page': 'Inicio',
+  '{n} files': '{n} archivos',
+  'File': 'Archivo',
 };

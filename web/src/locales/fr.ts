@@ -431,4 +431,11 @@ export const fr = {
   'Previous page': 'Page précédente',
   'Next page': 'Page suivante',
   '{from}–{to} of {total}': '{from}–{to} sur {total}',
+  'Fixed files': 'Fichiers fixes',
+  'A folder of entries': "Un dossier d'entrées",
+  'Entries': 'Entrées',
+  'Add a file': 'Ajouter un fichier',
+  'Home page': 'Accueil',
+  '{n} files': '{n} fichiers',
+  'File': 'Fichier',
 };

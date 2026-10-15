@@ -2,7 +2,7 @@
 
 // Keys of sumigo.yml by the key they sit under, with a short help shown next to the completion.
 export const keys: Record<string, Record<string, string>> = {
-  '': { media_folder: 'Repository folder of uploads', public_folder: 'URL prefix of uploads', collections: 'Folders of entries', i18n: 'Languages of translated collections' },
+  '': { media_folder: 'Repository folder of uploads', public_folder: 'URL prefix of uploads', collections: 'Folders or fixed files of entries', i18n: 'Languages of translated collections' },
   i18n: {
     structure: 'multiple_folders (posts/fr/hi.md) or multiple_files (posts/hi.fr.md)',
     locales: 'Language codes, like [en, fr]',
@@ -20,6 +20,13 @@ export const keys: Record<string, Record<string, string>> = {
     i18n: 'true stores each entry per locale',
     i18n_key: 'Field pairing translations with their own file names',
     fields: 'Fields of the entries',
+    files: 'Fixed files, each with its own fields, instead of a folder',
+  },
+  files: {
+    name: 'Unique id, no slash',
+    label: 'Name shown in the UI',
+    file: 'Repository path of the file',
+    fields: 'Fields of the file',
   },
   fields: {
     name: 'Front matter key, body for the content',

@@ -108,9 +108,22 @@ func (a *API) collection(w http.ResponseWriter, r *http.Request, min string) (*s
 		return nil, nil, false
 	}
 	for i, c := range cfg.Collections {
-		if c.Name == r.PathValue("col") {
+		if c.Name != r.PathValue("col") {
+			continue
+		}
+		// An entry of a files collection has its own fields. ?slug= names it on routes without {slug}.
+		slug := r.PathValue("slug")
+		if slug == "" {
+			slug = r.URL.Query().Get("slug")
+		}
+		if !c.IsFiles() || slug == "" {
 			return sc, &cfg.Collections[i], true
 		}
+		if col, ok := c.Entry(slug); ok {
+			return sc, col, true
+		}
+		httpError(w, http.StatusNotFound, "not_found", "not found")
+		return nil, nil, false
 	}
 	httpError(w, http.StatusNotFound, "unknown_collection", "unknown collection")
 	return nil, nil, false
@@ -273,11 +286,11 @@ func (sc *siteCtx) readEntries(ctx context.Context, col *content.Collection, pul
 	for _, p := range pulls {
 		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
-	dir, suffix := col.Dir("")
-	blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, dir, col.Ext(), extra)
+	blobs, drafts, err := sc.readCollection(ctx, col, extra)
 	if err != nil {
 		return nil, err
 	}
+	_, suffix := col.Dir("")
 	entries := []entrySummary{}
 	index := map[string]int{}
 	for _, b := range blobs {
@@ -292,8 +305,14 @@ func (sc *siteCtx) readEntries(ctx context.Context, col *content.Collection, pul
 		e.Draft = &pulls[i]
 		if j, ok := index[e.Slug]; ok {
 			entries[j] = e
-		} else {
+		} else if !col.IsFiles() {
 			entries = append(entries, e)
+		}
+	}
+	// A file is listed under its label, even before it exists: saving it creates it.
+	for _, f := range col.Files {
+		if j, ok := index[f.Name]; ok && f.Label != "" {
+			entries[j].Title = f.Label
 		}
 	}
 	if col.I18n {
@@ -302,6 +321,29 @@ func (sc *siteCtx) readEntries(ctx context.Context, col *content.Collection, pul
 		}
 	}
 	return entries, nil
+}
+
+// readCollection reads the entries of a collection on the site branch, and the extra "ref:path" files.
+// The files of a files collection are read as extras too, and come back as blobs named after them.
+func (sc *siteCtx) readCollection(ctx context.Context, col *content.Collection, extra []string) ([]forge.Blob, []string, error) {
+	if !col.IsFiles() {
+		dir, _ := col.Dir("")
+		return sc.gh.ReadDir(ctx, sc.site.Branch, dir, col.Ext(), extra)
+	}
+	var own []string
+	for _, f := range col.Files {
+		own = append(own, sc.site.Branch+":"+f.File)
+	}
+	// No file name ends with "/": the folder listing is skipped, only the files are read.
+	_, texts, err := sc.gh.ReadDir(ctx, sc.site.Branch, path.Dir(col.Files[0].File), "/", append(own, extra...))
+	if err != nil {
+		return nil, nil, err
+	}
+	blobs := make([]forge.Blob, len(col.Files))
+	for i, f := range col.Files {
+		blobs[i] = forge.Blob{Name: f.Name, Text: texts[i]}
+	}
+	return blobs, texts[len(own):], nil
 }
 
 // markLocales fills the published locales of the entries of a translated collection.
@@ -386,7 +428,8 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _, err := sc.gh.GetFile(r.Context(), file, ref)
-	if err != nil {
+	// A file of a files collection opens empty until it is first saved.
+	if err != nil && (!col.IsFiles() || !forge.IsNotFound(err)) {
 		fail(w, err)
 		return
 	}
@@ -646,6 +689,10 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	onlyDraft := r.URL.Query().Get("only") == "draft"
+	if col.IsFiles() && !onlyDraft {
+		httpError(w, http.StatusForbidden, "delete_disabled", "the files of this collection cannot be deleted")
+		return
+	}
 	if !onlyDraft && !sc.canPublish() {
 		httpError(w, http.StatusForbidden, "publisher_only_delete", "only publishers can delete entries on this site")
 		return
@@ -823,6 +870,17 @@ func (sc *siteCtx) entryTexts(ctx context.Context, cfg *content.Config) ([]strin
 					extra = append(extra, p.Head.Ref+":"+col.Path(strings.TrimPrefix(p.Head.Ref, prefix), loc))
 				}
 			}
+		}
+		if col.IsFiles() {
+			blobs, drafts, err := sc.readCollection(ctx, col, extra)
+			if err != nil {
+				return nil, err
+			}
+			for _, b := range blobs {
+				texts = append(texts, b.Text)
+			}
+			texts = append(texts, drafts...)
+			continue
 		}
 		// The drafts are read with the first folder, the other locales only add their folder (multiple_folders).
 		dirs := map[string]bool{}
