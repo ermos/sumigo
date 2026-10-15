@@ -53,6 +53,7 @@ collections:
 | `media_folder` | yes, to upload media | none | Repository folder where uploaded files are committed, e.g. `static/images`. |
 | `public_folder` | no | `/` + `media_folder` | URL prefix written into entries for uploaded files, e.g. `/images`. |
 | `collections` | yes | none | List of collections, see below. |
+| `i18n` | for translated collections | none | Languages of the collections with `i18n: true`, see [Multilingual content](#multilingual-content). |
 
 Unknown keys (such as Decap's `backend`, `publish_mode` or `site_url`) are ignored.
 
@@ -81,6 +82,7 @@ A collection is a folder of Markdown files that all share the same fields.
 | `identifier_field` | no | `title` | Field used as the entry title in lists and as `{{slug}}`. |
 | `seo` | no | | Turns on the SEO panel of the editor, see [SEO](#seo). |
 | `create` | no | `true` | `false` prevents creating new entries. Existing ones can still be edited. |
+| `i18n` | no | `false` | `true` stores each entry once per locale, see [Multilingual content](#multilingual-content). |
 | `fields` | yes | none | List of fields, see [Fields](#fields). |
 
 Only files directly in `folder` with the right extension are listed. Subfolders are not read.
@@ -139,6 +141,7 @@ Every key is optional, and a named field must exist in `fields`. The checks: tit
 | `options` | for `select` | none | Allowed values, see `select`. |
 | `fields` | no | none | Sub-fields of an `object`, or of a `list` of objects. These are edited as JSON for now. |
 | `collection`, `value_field`, `display_fields`, `multiple` | for `relation` | | See [Relations](#relations). |
+| `i18n` | no | `false` | In a translated collection: `true` for a translated field, `duplicate` for one copied from the default locale. |
 
 ### The `body` field
 
@@ -201,6 +204,37 @@ A `relation` field links an entry to entries of another collection: the author o
 
 The choices are the entries of `collection`, drafts included. A stored value that matches no entry is kept as is. Decap's `search_fields` is accepted and ignored.
 
+## Multilingual content
+
+A collection with `i18n: true` stores each entry once per locale. The locales are declared once, at the top of the file:
+
+```yaml
+i18n:
+  structure: multiple_folders  # or multiple_files
+  locales: [en, fr, es]
+  default_locale: en           # the first locale by default
+
+collections:
+  - name: blog
+    folder: src/content/blog
+    i18n: true
+    fields:
+      - { name: title, widget: string, i18n: true }
+      - { name: date, widget: datetime }
+      - { name: cover, widget: image, i18n: duplicate }
+      - { name: body, widget: markdown, i18n: true }
+```
+
+| `structure` | Files of the entry `hello` |
+|---|---|
+| `multiple_folders` | `src/content/blog/en/hello.md`, `src/content/blog/fr/hello.md` |
+| `multiple_files` | `src/content/blog/hello.en.md`, `src/content/blog/hello.fr.md` |
+
+- An entry is created in the default locale. The editor then shows a tab per locale, and the collection list shows which locales each entry is published in.
+- A translation shows the fields marked `i18n: true` or `i18n: duplicate`. `duplicate` fields start with the value of the default locale. The other fields only live in the default locale file.
+- Every locale of an entry shares its slug and its draft: in the pull request workflow, the translations of an entry are reviewed and published together.
+- Deleting an entry deletes it in every locale.
+
 ## How entries are written
 
 - Front matter keys follow the order of `fields`. Empty values are left out.
@@ -220,7 +254,8 @@ The CMS caches `sumigo.yml` for one minute per site. To apply a change right awa
 | `backend` (repo, branch) | Set per site in the CMS, ignored in the file |
 | `publish_mode: editorial_workflow` | Set per site in the CMS (`direct` or `pr`), ignored in the file. Keeping it in the CMS means editing the file cannot bypass review. |
 | `files` collections | Not supported yet, ignored |
-| Nested folders, `path`, `i18n`, `filter`, `summary`, `sortable_fields`, `view_filters` | Not supported, ignored |
+| Nested folders, `path`, `filter`, `summary`, `sortable_fields`, `view_filters` | Not supported, ignored |
+| `i18n` with `structure: single_file`, or an `i18n` object on a collection | Not supported, refused |
 | Per-collection `media_folder` | Not supported, the top-level one is used |
 | `file`, `code`, `color`, `map` widgets | Plain text input |
 | `relation` with `{{fields.x}}` templates in `value_field` or `display_fields` | Field names only |

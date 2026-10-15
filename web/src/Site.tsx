@@ -254,6 +254,19 @@ export function CollectionView() {
               <Link to={`/sites/${site.id}/c/${col}/e/${encodeURIComponent(e.slug)}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-canvas/60">
                 <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{e.title}</span>
                 {e.draft && <DraftPill pull={e.draft} />}
+                {collection.i18n && (collection.locales?.length ?? 0) > 1 && (
+                  <span className="hidden gap-1.5 font-mono text-[11px] font-medium uppercase sm:flex">
+                    {collection.locales!.map((l) =>
+                      e.locales?.includes(l) ? (
+                        <span key={l}>{l}</span>
+                      ) : (
+                        <span key={l} className="text-muted/50" title={t('Missing translation')}>
+                          {l}
+                        </span>
+                      ),
+                    )}
+                  </span>
+                )}
                 <span className="w-28 shrink-0 text-right text-[13px] text-muted tabular-nums">{formatDate(e.date)}</span>
               </Link>
             </li>

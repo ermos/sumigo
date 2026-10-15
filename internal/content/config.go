@@ -3,6 +3,8 @@ package content
 import (
 	"errors"
 	"fmt"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -17,7 +19,23 @@ type Config struct {
 	MediaFolder  string       `yaml:"media_folder,omitempty" json:"media_folder"`
 	PublicFolder string       `yaml:"public_folder,omitempty" json:"public_folder"`
 	Collections  []Collection `yaml:"collections,omitempty" json:"collections"`
+	// I18n lists the languages of the collections that turn on i18n, like Decap.
+	I18n *I18n `yaml:"i18n,omitempty" json:"i18n,omitempty"`
 }
+
+// I18n structures supported: content/posts/fr/hello.md, or content/posts/hello.fr.md.
+const (
+	MultipleFolders = "multiple_folders"
+	MultipleFiles   = "multiple_files"
+)
+
+type I18n struct {
+	Structure     string   `yaml:"structure,omitempty" json:"structure"`
+	Locales       []string `yaml:"locales,omitempty" json:"locales"`
+	DefaultLocale string   `yaml:"default_locale,omitempty" json:"default_locale"`
+}
+
+var validLocale = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 type Collection struct {
 	Name            string  `yaml:"name,omitempty" json:"name"`
@@ -30,6 +48,10 @@ type Collection struct {
 	Fields          []Field `yaml:"fields,omitempty" json:"fields"`
 	// SEO turns on the SEO analysis of the entries and names the fields playing each role. The body is always analyzed.
 	SEO *SEO `yaml:"seo,omitempty" json:"seo,omitempty"`
+	// I18n stores each entry once per locale. Locales is filled from the top-level i18n, default locale first.
+	I18n      bool     `yaml:"i18n,omitempty" json:"i18n,omitempty"`
+	Locales   []string `yaml:"-" json:"locales,omitempty"`
+	structure string
 }
 
 // SEO names the fields of a collection that hold its search metadata.
@@ -56,6 +78,14 @@ type Field struct {
 	ValueField    string   `yaml:"value_field,omitempty" json:"value_field,omitempty"`
 	DisplayFields []string `yaml:"display_fields,omitempty" json:"display_fields,omitempty"`
 	Multiple      bool     `yaml:"multiple,omitempty" json:"multiple,omitempty"`
+	// I18n is true (or Decap's "translate") for a translated field, "duplicate" for one copied from the default locale.
+	// Other fields only live in the default locale.
+	I18n any `yaml:"i18n,omitempty" json:"i18n,omitempty"`
+}
+
+// Translatable reports whether the field shows in the translations of an entry.
+func (f Field) Translatable() bool {
+	return f.I18n == true || f.I18n == "translate" || f.I18n == "duplicate"
 }
 
 // IsRequired follows Decap: fields are required unless `required: false`.
@@ -66,6 +96,40 @@ func (c Collection) Ext() string {
 		return "." + strings.TrimPrefix(c.Extension, ".")
 	}
 	return ".md"
+}
+
+// AllLocales lists the locales an entry is stored in: "" alone when the collection is not translated.
+func (c Collection) AllLocales() []string {
+	if !c.I18n {
+		return []string{""}
+	}
+	return c.Locales
+}
+
+// IsLocale reports whether locale is one of the collection. "" is the default locale.
+func (c Collection) IsLocale(locale string) bool {
+	return locale == "" || slices.Contains(c.Locales, locale)
+}
+
+// Dir returns the folder holding the entries of a locale and the end of their file names after the slug.
+// "" is the default locale.
+func (c Collection) Dir(locale string) (string, string) {
+	if !c.I18n {
+		return c.Folder, c.Ext()
+	}
+	if locale == "" {
+		locale = c.Locales[0]
+	}
+	if c.structure == MultipleFiles {
+		return c.Folder, "." + locale + c.Ext()
+	}
+	return path.Join(c.Folder, locale), c.Ext()
+}
+
+// Path is the file of an entry in a locale, "" being the default one.
+func (c Collection) Path(slug, locale string) string {
+	dir, suffix := c.Dir(locale)
+	return path.Join(dir, slug+suffix)
 }
 
 func (c Collection) TitleField() string {
@@ -82,10 +146,20 @@ func ParseConfig(raw []byte) (*Config, error) {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.checkI18n(); err != nil {
+		return nil, err
+	}
 	cols := cfg.Collections[:0]
 	for _, c := range cfg.Collections {
 		if c.Folder == "" {
 			continue
+		}
+		if c.I18n {
+			if cfg.I18n == nil {
+				return nil, fmt.Errorf("collection %s: i18n needs the top-level i18n block with its locales", c.Name)
+			}
+			c.structure = cfg.I18n.Structure
+			c.Locales = append([]string{cfg.I18n.DefaultLocale}, slices.DeleteFunc(slices.Clone(cfg.I18n.Locales), func(l string) bool { return l == cfg.I18n.DefaultLocale })...)
 		}
 		if c.Name == "" || strings.ContainsAny(c.Name, `/\`) {
 			return nil, errors.New("collection names must be set and contain no slash")
@@ -119,6 +193,35 @@ func checkRelations(cols []Collection, fields []Field) error {
 		if err := checkRelations(cols, f.Fields); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// checkI18n validates the top-level i18n block and fills its defaults.
+func (cfg *Config) checkI18n() error {
+	i := cfg.I18n
+	if i == nil {
+		return nil
+	}
+	if i.Structure == "" {
+		i.Structure = MultipleFolders
+	}
+	if i.Structure != MultipleFolders && i.Structure != MultipleFiles {
+		return fmt.Errorf("i18n structure %q is not supported, use %s or %s", i.Structure, MultipleFolders, MultipleFiles)
+	}
+	if len(i.Locales) == 0 {
+		return errors.New("i18n needs at least one locale")
+	}
+	for _, l := range i.Locales {
+		if !validLocale.MatchString(l) {
+			return fmt.Errorf("i18n locale %q must be letters, digits, - or _", l)
+		}
+	}
+	if i.DefaultLocale == "" {
+		i.DefaultLocale = i.Locales[0]
+	}
+	if !slices.Contains(i.Locales, i.DefaultLocale) {
+		return fmt.Errorf("i18n default_locale %q is not in its locales", i.DefaultLocale)
 	}
 	return nil
 }

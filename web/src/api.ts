@@ -29,6 +29,8 @@ export interface Field {
   value_field?: string;
   display_fields?: string[];
   multiple?: boolean;
+  // i18n: true is translated, 'duplicate' is copied from the default locale. Other fields only live in the default locale.
+  i18n?: boolean | 'translate' | 'duplicate' | 'none';
 }
 
 export interface Collection {
@@ -42,6 +44,9 @@ export interface Collection {
   fields: Field[];
   // seo turns on the SEO panel and names the fields playing each role.
   seo?: { title?: string; description?: string; keywords?: string; image?: string; slug?: boolean };
+  // i18n stores each entry once per locale, the default locale first.
+  i18n?: boolean;
+  locales?: string[];
 }
 
 export interface Config {
@@ -124,6 +129,8 @@ export interface EntrySummary {
   title: string;
   date?: string;
   draft?: Pull;
+  // locales the entry is published in, for translated collections.
+  locales?: string[];
   data?: Record<string, unknown>;
 }
 

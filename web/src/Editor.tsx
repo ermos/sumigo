@@ -1,5 +1,5 @@
 import { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
@@ -19,8 +19,13 @@ export default function Editor() {
   const navigate = useNavigate();
   const collection = site.config?.collections.find((c) => c.name === col);
   const listKey = entriesKey(site.id, col);
+  // ?locale= opens a translation; '' is the default locale, the one the collection list holds.
+  const [params, setParams] = useSearchParams();
+  const locales = (collection?.i18n && collection.locales) || [];
+  const locale = params.get('locale') && params.get('locale') !== locales[0] ? params.get('locale')! : '';
+  const lq = locale ? `?locale=${encodeURIComponent(locale)}` : '';
   // The collection list already holds every entry: open it from there, then refresh.
-  const cachedEntry = () => (slug ? getCached<EntrySummary[]>(listKey)?.find((e) => e.slug === slug) : undefined);
+  const cachedEntry = () => (slug && !locale ? getCached<EntrySummary[]>(listKey)?.find((e) => e.slug === slug) : undefined);
   const [data, setData] = useState<Data | null>(() => cachedEntry()?.data ?? (slug ? null : {}));
   const [draft, setDraft] = useState<Pull | null>(() => cachedEntry()?.draft ?? null);
   const edited = useRef(false);
@@ -34,10 +39,12 @@ export default function Editor() {
   const [formKey, setFormKey] = useState(0);
   const form = useRef<HTMLFormElement>(null);
   const leaveDialog = useRef<HTMLDialogElement>(null);
+  // What "Leave" does in the leave dialog: back to the list, or to another locale.
+  const leaveTo = useRef<() => void>(() => {});
   const deleteDialog = useRef<HTMLDialogElement>(null);
   const base = `/sites/${site.id}/collections/${col}/entries`;
   // The form is autosaved in the database every few seconds, without a commit, and offered back on the next visit.
-  const autosaveUrl = `/sites/${site.id}/collections/${col}/autosave?slug=${encodeURIComponent(slug ?? '')}`;
+  const autosaveUrl = `/sites/${site.id}/collections/${col}/autosave?slug=${encodeURIComponent(slug ?? '')}${locale ? `&locale=${encodeURIComponent(locale)}` : ''}`;
   const [autosave, setAutosave] = useState<{ data: Data; updated_at: string } | null>(null);
   const [autosaved, setAutosaved] = useState(false);
 
@@ -52,20 +59,33 @@ export default function Editor() {
     edited.current = false;
     setData(cached?.data ?? null);
     setDraft(cached?.draft ?? null);
+    setDirty(false);
+    setError('');
     let live = true;
-    api<Entry>('GET', `${base}/${encodeURIComponent(slug)}`)
+    const url = `${base}/${encodeURIComponent(slug)}`;
+    api<Entry>('GET', url + lq)
       .then((e) => {
         // Never overwrite what the user started typing with the background refresh.
         if (!live || edited.current) return;
         setData(e.data);
         setDraft(e.draft);
       })
-      .catch((e) => live && setError(e.message));
+      .catch(async (e) => {
+        if (!live) return;
+        if (!(locale && e instanceof HttpError && e.status === 404)) return setError(e.message);
+        // A missing translation starts with the duplicated fields of the default locale.
+        const def = await api<Entry>('GET', url).catch(() => null);
+        if (!live || edited.current) return;
+        const start: Data = {};
+        collection?.fields.forEach((f) => f.i18n === 'duplicate' && def?.data[f.name] !== undefined && (start[f.name] = def.data[f.name]));
+        setData(start);
+        setDraft(def?.draft ?? null);
+      });
     return () => {
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, slug, collection]);
+  }, [base, slug, collection, lq]);
 
   useEffect(() => {
     setAutosave(null);
@@ -126,7 +146,7 @@ export default function Editor() {
     setBusy(publish ? 'publish' : 'draft');
     setError('');
     try {
-      const res = await api<{ slug: string; draft: Pull | null }>(slug ? 'PUT' : 'POST', slug ? `${base}/${encodeURIComponent(slug)}` : base, { data, publish });
+      const res = await api<{ slug: string; draft: Pull | null }>(slug ? 'PUT' : 'POST', slug ? `${base}/${encodeURIComponent(slug)}${lq}` : base, { data, publish });
       setDraft(res.draft);
       setDirty(false);
       const title = String(data?.[collection.identifier_field || 'title'] || res.slug);
@@ -138,7 +158,12 @@ export default function Editor() {
         data: data ?? {},
         draft: res.draft ?? undefined,
       };
-      updateList((list) => (list.some((e) => e.slug === res.slug) ? list.map((e) => (e.slug === res.slug ? { ...e, ...entry, path: e.path } : e)) : [entry, ...list]));
+      // The list holds the default locale: a translation only updates the draft of the entry.
+      updateList((list) =>
+        list.some((e) => e.slug === res.slug)
+          ? list.map((e) => (e.slug !== res.slug ? e : locale ? { ...e, draft: res.draft ?? undefined } : { ...e, ...entry, path: e.path }))
+          : [{ ...entry, locales: locales.slice(0, 1) }, ...list],
+      );
       setStatus(publish ? t('Published on {branch}', { branch: site.branch }) : t('Draft saved'));
       if (!slug) navigate(`/sites/${site.id}/c/${col}/e/${encodeURIComponent(res.slug)}`, { replace: true });
     } catch (err) {
@@ -155,8 +180,14 @@ export default function Editor() {
     setBusy(onlyDraft ? 'discard' : 'delete');
     try {
       await api('DELETE', onlyDraft ? url + '?only=draft' : url);
-      const published = onlyDraft ? await api<Entry>('GET', url).catch((e) => (e instanceof HttpError && e.status === 404 ? null : Promise.reject(e))) : null;
+      const published = onlyDraft ? await api<Entry>('GET', url + lq).catch((e) => (e instanceof HttpError && e.status === 404 ? null : Promise.reject(e))) : null;
       deleteDialog.current?.close();
+      if (!published && onlyDraft && locale) {
+        // The translation only existed in the draft: back to the default locale.
+        updateList((list) => list.map((e) => (e.slug === slug ? { ...e, draft: undefined } : e)));
+        setParams({});
+        return;
+      }
       if (!published) {
         updateList((list) => list.filter((e) => e.slug !== slug));
         navigate(`/sites/${site.id}/c/${col}`);
@@ -167,7 +198,7 @@ export default function Editor() {
       setFormKey((k) => k + 1);
       setDirty(false);
       setStatus(t('Draft discarded'));
-      updateList((list) => list.map((e) => (e.slug === slug ? { ...e, data: published.data, draft: undefined } : e)));
+      updateList((list) => list.map((e) => (e.slug === slug ? { ...e, ...(locale ? {} : { data: published.data }), draft: undefined } : e)));
     } catch (err) {
       deleteDialog.current?.close();
       setError((err as Error).message);
@@ -215,8 +246,20 @@ export default function Editor() {
   const leave = (e: { preventDefault: () => void }) => {
     if (!dirty) return;
     e.preventDefault();
+    leaveTo.current = () => navigate(back);
     leaveDialog.current?.showModal();
   };
+  const switchLocale = (l: string) => {
+    const go = () => setParams(l && l !== locales[0] ? { locale: l } : {});
+    if (!dirty) return go();
+    leaveTo.current = () => {
+      leaveDialog.current?.close();
+      go();
+    };
+    leaveDialog.current?.showModal();
+  };
+  // A translation only shows its translated and duplicated fields.
+  const fields = locale ? collection.fields.filter((f) => f.i18n === true || f.i18n === 'translate' || f.i18n === 'duplicate') : collection.fields;
 
   return (
     <form ref={form} onSubmit={save} className="flex h-screen flex-col">
@@ -227,6 +270,21 @@ export default function Editor() {
         </Link>
         <span className="h-5 w-px bg-line" />
         <span className="min-w-0 truncate px-2 text-[14px] font-medium">{title || t('New entry')}</span>
+        {slug && locales.length > 1 && (
+          <div className="flex shrink-0 rounded-md bg-canvas p-0.5 ring-1 ring-line" role="group" aria-label={t('Language')}>
+            {locales.map((l) => (
+              <button
+                key={l}
+                type="button"
+                aria-pressed={(locale || locales[0]) === l}
+                onClick={() => switchLocale(l)}
+                className={`rounded px-2 py-1 font-mono text-xs font-medium uppercase ${(locale || locales[0]) === l ? 'bg-surface text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
         {draft && (
           <a href={draft.html_url} target="_blank" rel="noreferrer" title={t('Open the pull request on {forge}', { forge: forgeNames[site.forge] })}>
             <DraftPill pull={draft} />
@@ -319,7 +377,7 @@ export default function Editor() {
             <button type="button" className="btn" autoFocus onClick={() => leaveDialog.current?.close()}>
               {t('Cancel')}
             </button>
-            <button type="button" className="btn btn-danger" onClick={() => navigate(back)}>
+            <button type="button" className="btn btn-danger" onClick={() => leaveTo.current()}>
               {t('Leave')}
             </button>
           </div>
@@ -339,8 +397,8 @@ export default function Editor() {
       {data ? (
         <div className={`grid min-h-0 flex-1 ${panel ? 'lg:grid-cols-2' : ''}`}>
           <div className="overflow-y-auto">
-            <div key={formKey} className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-8">
-              {collection.fields.map(field)}
+            <div key={`${formKey}:${locale}`} className="mx-auto flex max-w-3xl flex-col gap-5 px-4 py-8 md:px-8">
+              {fields.map(field)}
             </div>
           </div>
           {panel && (
@@ -349,6 +407,7 @@ export default function Editor() {
                 <History
                   site={site}
                   url={`${base}/${encodeURIComponent(slug)}/history`}
+                  query={lq}
                   fields={collection.fields}
                   titleField={collection.identifier_field || 'title'}
                   onRestore={readOnly ? undefined : restore}
@@ -1265,7 +1324,22 @@ function ScheduleMenu({ site, pull, dirty, onChange }: { site: SiteDetail; pull:
 }
 
 // History lists the versions of an entry. Picking one previews it, and restoring loads it into the form.
-function History({ site, url, fields, titleField, onRestore }: { site: SiteDetail; url: string; fields: Field[]; titleField: string; onRestore?: (data: Data) => void }) {
+function History({
+  site,
+  url,
+  query,
+  fields,
+  titleField,
+  onRestore,
+}: {
+  site: SiteDetail;
+  url: string;
+  // query is the ?locale= of a translation.
+  query: string;
+  fields: Field[];
+  titleField: string;
+  onRestore?: (data: Data) => void;
+}) {
   const [commits, setCommits] = useState<Commit[] | null>(null);
   const [selected, setSelected] = useState<Commit | null>(null);
   const [version, setVersion] = useState<{ data: Data; patch: string } | null>(null);
@@ -1273,16 +1347,17 @@ function History({ site, url, fields, titleField, onRestore }: { site: SiteDetai
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api<Commit[]>('GET', url)
+    setSelected(null);
+    api<Commit[]>('GET', url + query)
       .then(setCommits)
       .catch((e) => setError(e.message));
-  }, [url]);
+  }, [url, query]);
 
   const open = (c: Commit) => {
     setSelected(c);
     setVersion(null);
     setError('');
-    api<{ data: Data; patch: string }>('GET', `${url}/${c.sha}`)
+    api<{ data: Data; patch: string }>('GET', `${url}/${c.sha}${query}`)
       .then(setVersion)
       .catch((e) => setError(e.message));
   };
