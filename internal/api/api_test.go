@@ -834,7 +834,7 @@ collections:
     i18n: true
     fields:
       - {name: title, widget: string, i18n: true}
-      - {name: date, widget: date}
+      - {name: date, widget: date, i18n: false}
 `}
 	a, st := newTestAPI(t, gh)
 	srv := httptest.NewServer(a.Handler())

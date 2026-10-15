@@ -33,7 +33,7 @@ export const keys: Record<string, Record<string, string>> = {
     value_field: 'Stored value of a relation, {{slug}} by default',
     display_fields: 'Fields shown to pick a relation',
     multiple: 'true picks several entries',
-    i18n: 'true translated, duplicate copied from the default locale',
+    i18n: 'true translated, false default locale only, copied from it when unset',
   },
   seo: {
     title: 'Field of the meta title',

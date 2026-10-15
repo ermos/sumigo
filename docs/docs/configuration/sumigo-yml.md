@@ -142,7 +142,7 @@ Every key is optional, and a named field must exist in `fields`. The checks: tit
 | `options` | for `select` | none | Allowed values, see `select`. |
 | `fields` | no | none | Sub-fields of an `object`, or of a `list` of objects. These are edited as JSON for now. |
 | `collection`, `value_field`, `display_fields`, `multiple` | for `relation` | | See [Relations](#relations). |
-| `i18n` | no | `false` | In a translated collection: `true` for a translated field, `duplicate` for one copied from the default locale. |
+| `i18n` | no | `duplicate` | In a translated collection: `true` for a translated field, `false` for one living only in the default locale. Unset, it is copied from the default locale. |
 
 ### The `body` field
 
@@ -221,8 +221,8 @@ collections:
     i18n: true
     fields:
       - { name: title, widget: string, i18n: true }
-      - { name: date, widget: datetime }
-      - { name: cover, widget: image, i18n: duplicate }
+      - { name: date, widget: datetime }            # copied from the default locale
+      - { name: cover, widget: image, i18n: false } # default locale only
       - { name: body, widget: markdown, i18n: true }
 ```
 
@@ -232,7 +232,7 @@ collections:
 | `multiple_files` | `src/content/blog/hello.en.md`, `src/content/blog/hello.fr.md` |
 
 - An entry is created in the default locale. The editor then shows a tab per locale, and the collection list shows which locales each entry is published in.
-- A translation shows the fields marked `i18n: true` or `i18n: duplicate`. `duplicate` fields start with the value of the default locale. The other fields only live in the default locale file.
+- A translation shows every field but the ones marked `i18n: false`, which only live in the default locale file. Fields without `i18n` (or with `i18n: duplicate`) start with the value of the default locale, `i18n: true` ones start empty.
 - Every locale of an entry shares its slug and its draft: in the pull request workflow, the translations of an entry are reviewed and published together.
 - Deleting an entry deletes it in every locale.
 
@@ -272,6 +272,7 @@ The CMS caches `sumigo.yml` for one minute per site. To apply a change right awa
 | `files` collections | Not supported yet, ignored |
 | Nested folders, `path`, `filter`, `summary`, `sortable_fields`, `view_filters` | Not supported, ignored |
 | `i18n` with `structure: single_file`, or an `i18n` object on a collection | Not supported, refused |
+| A field without `i18n` lives only in the default locale | It is copied into translations, `i18n: false` keeps it in the default locale |
 | Per-collection `media_folder` | Not supported, the top-level one is used |
 | `file`, `code`, `color`, `map` widgets | Plain text input |
 | `relation` with `{{fields.x}}` templates in `value_field` or `display_fields` | Field names only |

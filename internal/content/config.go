@@ -81,14 +81,14 @@ type Field struct {
 	ValueField    string   `yaml:"value_field,omitempty" json:"value_field,omitempty"`
 	DisplayFields []string `yaml:"display_fields,omitempty" json:"display_fields,omitempty"`
 	Multiple      bool     `yaml:"multiple,omitempty" json:"multiple,omitempty"`
-	// I18n is true (or Decap's "translate") for a translated field, "duplicate" for one copied from the default locale.
-	// Other fields only live in the default locale.
+	// I18n is true (or Decap's "translate") for a translated field, false (or "none") for one living only in the
+	// default locale. Unset, or "duplicate", the field is copied from the default locale into new translations.
 	I18n any `yaml:"i18n,omitempty" json:"i18n,omitempty"`
 }
 
 // Translatable reports whether the field shows in the translations of an entry.
 func (f Field) Translatable() bool {
-	return f.I18n == true || f.I18n == "translate" || f.I18n == "duplicate"
+	return f.I18n != false && f.I18n != "none"
 }
 
 // IsRequired follows Decap: fields are required unless `required: false`.
