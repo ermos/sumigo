@@ -83,6 +83,7 @@ A collection is a folder of Markdown files that all share the same fields.
 | `seo` | no | | Turns on the SEO panel of the editor, see [SEO](#seo). |
 | `create` | no | `true` | `false` prevents creating new entries. Existing ones can still be edited. |
 | `i18n` | no | `false` | `true` stores each entry once per locale, see [Multilingual content](#multilingual-content). |
+| `i18n_key` | no | none | Front matter field pairing translations with their own file names, see [Translated file names](#translated-file-names). |
 | `fields` | yes | none | List of fields, see [Fields](#fields). |
 
 Only files directly in `folder` with the right extension are listed. Subfolders are not read.
@@ -234,6 +235,21 @@ collections:
 - A translation shows the fields marked `i18n: true` or `i18n: duplicate`. `duplicate` fields start with the value of the default locale. The other fields only live in the default locale file.
 - Every locale of an entry shares its slug and its draft: in the pull request workflow, the translations of an entry are reviewed and published together.
 - Deleting an entry deletes it in every locale.
+
+### Translated file names
+
+By default a translation has the file name of its entry, like Decap. When each locale names its files after its own title, like `en/hello.md` and `fr/bonjour.md`, `i18n_key` names the front matter field that pairs them:
+
+```yaml
+collections:
+  - name: blog
+    folder: src/content/blog
+    i18n: true
+    i18n_key: translationKey
+```
+
+- A translation is the file of the locale folder whose `translationKey` equals the one of the entry. An entry without the field is paired by its slug.
+- A new translation is named after its own title, with the `slug` template, and gets the `translationKey` of its entry.
 
 ## How entries are written
 

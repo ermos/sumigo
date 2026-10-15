@@ -410,4 +410,6 @@ export const es: Record<keyof typeof fr, string> = {
   'Default locale': 'Idioma por defecto',
   Files: 'Archivos',
   'Add a collection': 'Añadir una colección',
+  'Translation key field': 'Campo de clave de traducción',
+  'Same file name': 'Mismo nombre de archivo',
 };

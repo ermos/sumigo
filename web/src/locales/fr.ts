@@ -408,4 +408,6 @@ export const fr = {
   'Default locale': 'Langue par défaut',
   Files: 'Fichiers',
   'Add a collection': 'Ajouter une collection',
+  'Translation key field': 'Champ de clé de traduction',
+  'Same file name': 'Même nom de fichier',
 };

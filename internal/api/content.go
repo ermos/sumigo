@@ -130,6 +130,35 @@ func locale(w http.ResponseWriter, r *http.Request, col *content.Collection) (st
 	return l, true
 }
 
+// entryFile finds the file of an entry in a locale at ref. With i18n_key, a translation has its own file name: it is
+// the file of the locale folder whose key matches the default entry. file is "" for a translation not written yet,
+// key is what pairs it with the default entry.
+// ponytail: reads the whole locale folder per call, an index cached per ref if folders get large.
+func (sc *siteCtx) entryFile(ctx context.Context, col *content.Collection, slug, loc, ref string) (file, key string, err error) {
+	if loc == "" || col.I18nKey == "" {
+		return col.Path(slug, loc), slug, nil
+	}
+	raw, _, err := sc.gh.GetFile(ctx, col.Path(slug, ""), ref)
+	if err != nil {
+		return "", "", err
+	}
+	data, _, _ := content.Parse(raw)
+	key = col.TranslationKey(slug, data)
+	dir, suffix := col.Dir(loc)
+	blobs, _, err := sc.gh.ReadDir(ctx, ref, dir, col.Ext(), nil)
+	if err != nil && !forge.IsNotFound(err) {
+		return "", "", err
+	}
+	for _, b := range blobs {
+		if name, ok := strings.CutSuffix(b.Name, suffix); ok {
+			if d, _, _ := content.Parse([]byte(b.Text)); col.TranslationKey(name, d) == key {
+				return path.Join(dir, b.Name), key, nil
+			}
+		}
+	}
+	return "", key, nil
+}
+
 // autosaveKey keeps the autosave of each translation apart: "fr/hello" cannot clash with a slug, which has no slash.
 func autosaveKey(slug, locale string) string {
 	if locale == "" {
@@ -235,11 +264,28 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 // markLocales fills the published locales of the entries of a translated collection.
 // ponytail: translations that only exist in a draft are not marked, the draft pill already flags the entry.
 func (sc *siteCtx) markLocales(ctx context.Context, col *content.Collection, blobs []forge.Blob, entries []entrySummary, index map[string]int) error {
-	for _, j := range index {
+	byKey := map[string]int{}
+	for slug, j := range index {
 		entries[j].Locales = []string{col.Locales[0]}
+		byKey[col.TranslationKey(slug, entries[j].Data)] = j
 	}
 	for _, l := range col.Locales[1:] {
 		dir, suffix := col.Dir(l)
+		if col.I18nKey != "" {
+			files, _, err := sc.gh.ReadDir(ctx, sc.site.Branch, dir, col.Ext(), nil)
+			if err != nil && !forge.IsNotFound(err) {
+				return err
+			}
+			for _, f := range files {
+				if name, ok := strings.CutSuffix(f.Name, suffix); ok {
+					d, _, _ := content.Parse([]byte(f.Text))
+					if j, ok := byKey[col.TranslationKey(name, d)]; ok {
+						entries[j].Locales = append(entries[j].Locales, l)
+					}
+				}
+			}
+			continue
+		}
 		var names []string
 		if dir == col.Folder {
 			for _, b := range blobs {
@@ -287,7 +333,16 @@ func (a *API) getEntry(w http.ResponseWriter, r *http.Request) {
 		ref = pr.Head.Ref
 		a.markScheduled(sc.site.ID, []forge.Pull{*pr})
 	}
-	raw, _, err := sc.gh.GetFile(r.Context(), col.Path(slug, loc), ref)
+	file, _, err := sc.entryFile(r.Context(), col, slug, loc, ref)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if file == "" {
+		httpError(w, http.StatusNotFound, "not_found", "not found")
+		return
+	}
+	raw, _, err := sc.gh.GetFile(r.Context(), file, ref)
 	if err != nil {
 		fail(w, err)
 		return
@@ -352,18 +407,46 @@ func (a *API) saveEntry(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "invalid_slug_title", "invalid slug, check the title")
 		return
 	}
-	raw, err := content.Render(col.Fields, in.Data)
-	if err != nil {
-		httpError(w, http.StatusBadRequest, "invalid_data", err.Error(), params{"detail": err.Error()})
-		return
-	}
-
 	ctx := r.Context()
-	file := col.Path(slug, loc)
 	branch := sc.site.Branch
 	pr, err := sc.draft(ctx, branchPrefix+col.Name+"/"+slug)
 	if err != nil {
 		fail(w, err)
+		return
+	}
+	ref := branch
+	if pr != nil {
+		ref = pr.Head.Ref
+	}
+	file, key, err := sc.entryFile(ctx, col, slug, loc, ref)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if loc != "" && col.I18nKey != "" {
+		// The key pairs the translation with its entry. A new one is named after its own title.
+		in.Data[col.I18nKey] = key
+		if file == "" {
+			title, _ := in.Data[col.TitleField()].(string)
+			name := content.Slug(col.Slug, title, in.Data, time.Now())
+			if !validSlug(name) {
+				httpError(w, http.StatusBadRequest, "invalid_slug_title", "invalid slug, check the title")
+				return
+			}
+			file = col.Path(name, loc)
+			// Another entry may already hold this name in the locale: never write over it.
+			if _, _, err := sc.gh.GetFile(ctx, file, ref); err == nil {
+				httpError(w, http.StatusConflict, "slug_exists", "an entry with slug "+name+" already exists", params{"slug": name})
+				return
+			} else if !forge.IsNotFound(err) {
+				fail(w, err)
+				return
+			}
+		}
+	}
+	raw, err := content.Render(col.Fields, in.Data)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, "invalid_data", err.Error(), params{"detail": err.Error()})
 		return
 	}
 	if creating {
@@ -518,8 +601,18 @@ func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	}
 	// Every locale goes: a translation left without its default entry would never be listed.
 	deleted := pr != nil
-	for _, loc := range col.AllLocales() {
-		file := col.Path(slug, loc)
+	// The default locale goes last: entryFile reads it to find the translations.
+	locs := col.AllLocales()
+	for i := range locs {
+		loc := locs[len(locs)-1-i]
+		file, _, err := sc.entryFile(ctx, col, slug, loc, sc.site.Branch)
+		if forge.IsNotFound(err) || file == "" {
+			continue
+		}
+		if err != nil {
+			fail(w, err)
+			return
+		}
 		_, sha, err := sc.gh.GetFile(ctx, file, sc.site.Branch)
 		if forge.IsNotFound(err) {
 			continue
@@ -856,7 +949,16 @@ func (a *API) entryHistory(w http.ResponseWriter, r *http.Request) {
 	if pr != nil {
 		ref = pr.Head.Ref
 	}
-	commits, err := sc.gh.ListCommits(r.Context(), col.Path(slug, loc), ref)
+	file, _, err := sc.entryFile(r.Context(), col, slug, loc, ref)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if file == "" {
+		writeJSON(w, []forge.Commit{})
+		return
+	}
+	commits, err := sc.gh.ListCommits(r.Context(), file, ref)
 	if err != nil {
 		fail(w, err)
 		return
@@ -879,7 +981,15 @@ func (a *API) entryVersion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file := col.Path(slug, loc)
+	file, _, err := sc.entryFile(r.Context(), col, slug, loc, sha)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if file == "" {
+		httpError(w, http.StatusNotFound, "not_found", "not found")
+		return
+	}
 	raw, _, err := sc.gh.GetFile(r.Context(), file, sha)
 	if err != nil {
 		fail(w, err)

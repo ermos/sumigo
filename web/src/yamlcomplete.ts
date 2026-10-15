@@ -18,6 +18,7 @@ export const keys: Record<string, Record<string, string>> = {
     create: 'false prevents new entries',
     seo: 'SEO analysis of the entries',
     i18n: 'true stores each entry per locale',
+    i18n_key: 'Field pairing translations with their own file names',
     fields: 'Fields of the entries',
   },
   fields: {

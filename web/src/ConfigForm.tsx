@@ -5,7 +5,7 @@ import { widgets } from './yamlcomplete';
 import { lang, t } from './i18n';
 
 type Field = { name?: string; label?: string; widget?: string; required?: boolean; options?: unknown[]; fields?: Field[]; collection?: string; value_field?: string; display_fields?: string[]; multiple?: boolean; i18n?: unknown };
-type Collection = { name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
+type Collection = { i18n_key?: string; name?: string; label?: string; folder?: string; extension?: string; slug?: string; identifier_field?: string; create?: boolean; i18n?: boolean; fields?: Field[]; seo?: Record<string, string | boolean> };
 type Config = { media_folder?: string; public_folder?: string; i18n?: { structure?: string; locales?: string[]; default_locale?: string }; collections?: Collection[] };
 
 const Text = ({ label, value, onChange, placeholder }: { label: string; value?: string; onChange: (v: string) => void; placeholder?: string }) => (
@@ -157,6 +157,11 @@ function CollectionForm({ edit, c, i, n, cfg, open }: { edit: Edit; c: Collectio
           <Check label={t('New entries allowed')} checked={c.create !== false} onChange={(v) => set('create', v ? undefined : false)} />
           <Check label={t('Translated')} checked={!!c.i18n} onChange={(v) => set('i18n', v || undefined)} />
         </div>
+        {c.i18n && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Text label={t('Translation key field')} value={c.i18n_key} placeholder={t('Same file name')} onChange={(v) => set('i18n_key', v)} />
+          </div>
+        )}
         <div className="flex flex-col gap-3">
           <h3 className="text-[13px] font-semibold">{t('Fields')}</h3>
           <Fields edit={edit} path={[...at, 'fields']} fields={c.fields} cfg={cfg} translated={!!c.i18n} />
