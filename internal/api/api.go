@@ -36,6 +36,7 @@ type API struct {
 	SecureCookie bool
 
 	configs   sync.Map // site ID -> cachedConfig
+	entries   sync.Map // "site ID/collection" -> cachedEntries
 	providers sync.Map // OIDC issuer -> *oidc.Provider
 
 	setupMu   sync.Mutex

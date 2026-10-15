@@ -45,6 +45,9 @@ type fakeGitHub struct {
 	config string
 	// files, when set, holds the repository: its files are served, and listed by GraphQL folder reads.
 	files map[string]string
+	// head is the sha of every branch, "base123" when empty. reads counts the GraphQL calls.
+	head  string
+	reads int
 }
 
 func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -54,6 +57,7 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/repos/acme/blog")
 	switch {
 	case r.URL.Path == "/graphql":
+		f.reads++
 		var body struct{ Variables map[string]any }
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.graphql = body.Variables
@@ -92,7 +96,11 @@ func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && p == "/commits/"+strings.Repeat("a", 40):
 		_, _ = w.Write([]byte(`{"files":[{"filename":"static/x.png"},{"filename":"content/posts/old.md","patch":"@@ -1 +1 @@\n-title: Older\n+title: Old title"}]}`))
 	case r.Method == http.MethodGet && strings.HasPrefix(p, "/git/ref/heads/"):
-		_, _ = w.Write([]byte(`{"object":{"sha":"base123"}}`))
+		head := f.head
+		if head == "" {
+			head = "base123"
+		}
+		_, _ = w.Write([]byte(`{"object":{"sha":"` + head + `"}}`))
 	case r.Method == http.MethodGet && p == "/contents/static/img":
 		_, _ = w.Write([]byte(`[{"name":"cat.svg","type":"file","size":3},{"name":"dog.png","type":"file","size":5},{"name":"old","type":"dir"}]`))
 	case r.Method == http.MethodGet && p == "/contents/static/img/cat.svg" && strings.Contains(r.Header.Get("Accept"), "raw"):
@@ -952,5 +960,47 @@ collections:
 	raw, _ := base64.StdEncoding.DecodeString(gh.bodies[1]["content"].(string))
 	if !strings.Contains(string(raw), "translationKey: k2") {
 		t.Fatalf("a new translation carries the key of its entry: %s", raw)
+	}
+}
+
+// The collection is read from the forge once, and again only when the branch moves.
+func TestEntriesAreCachedUntilTheBranchMoves(t *testing.T) {
+	gh := &fakeGitHub{files: map[string]string{"content/posts/hello.md": "---\ntitle: Hello\n---\n"}}
+	a, st := newTestAPI(t, gh)
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	jane := &store.User{Email: "jane@acme.io", Name: "Jane"}
+	if err := st.CreateUser(jane, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	site := &store.Site{Name: "Blog", Repo: "acme/blog", Branch: "main", Workflow: "direct", Token: "ghp_secret"}
+	if err := st.SaveSite(site); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAccess(site.ID, []store.Access{{UserID: jane.ID, Role: store.RoleViewer}}); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(jane.ID, time.Hour)
+	list := func() string {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/sites/1/collections/posts/entries", nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		return string(b)
+	}
+
+	first := list()
+	if second := list(); second != first || gh.reads != 1 {
+		t.Fatalf("second list read the forge again (%d reads) or differs: %s", gh.reads, second)
+	}
+	gh.mu.Lock()
+	gh.head = "pushed456"
+	gh.files["content/posts/hello.md"] = "---\ntitle: Hello again\n---\n"
+	gh.mu.Unlock()
+	if got := list(); !strings.Contains(got, "Hello again") || gh.reads != 2 {
+		t.Fatalf("a push must refresh the list (%d reads): %s", gh.reads, got)
 	}
 }

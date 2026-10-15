@@ -14,6 +14,7 @@ Sumigo is a self-hosted, multi-site Git CMS in the spirit of [Decap CMS](https:/
 - **Drafts**: "Save draft" keeps changes on a `cms/<collection>/<slug>` branch with an open pull request, "Publish" puts them live (squash-merging the draft). Drafts can also be **scheduled**: the server merges them at the set date.
 - **Autosave**: the editor form is saved in the Sumigo database every few seconds, without any commit, and offered back on the next visit.
 - **History**: every version of an entry can be compared and restored into the editor.
+- **Fast lists**: a collection is read from the forge once and kept in memory until its branch moves. See [Collection cache](guides/forges.md#collection-cache).
 - **SEO**: collections can declare their SEO fields; the editor scores each entry as it is typed and previews its Google result.
 - **AI assistant**: suggests field values, writes an article from a brief and proofreads, with Anthropic, OpenAI, Mistral, Gemini, OpenRouter or any OpenAI-compatible API.
 - **Content model in the repository**: a [`sumigo.yml`](configuration/sumigo-yml.md) at the root, in the Decap format. A repository without one gets it drafted from its files, or from its Decap config.

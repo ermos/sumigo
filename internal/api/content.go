@@ -10,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -210,29 +211,72 @@ func summarize(col *content.Collection, slug, text string) entrySummary {
 	return e
 }
 
+// cachedEntries is a collection as last read from the forge, valid while its key does not change.
+type cachedEntries struct {
+	key     string
+	entries []entrySummary
+}
+
 // listEntries reads the whole collection folder, and the drafts of open CMS pull requests,
-// in one GraphQL call.
+// in one GraphQL call. The result is kept in memory until the branch moves or a draft changes.
 func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 	sc, col, ok := a.collection(w, r, store.RoleViewer)
 	if !ok {
 		return
 	}
-	var extra []string
-	prefix := branchPrefix + col.Name + "/"
-	pulls, err := sc.gh.ListPulls(r.Context(), prefix)
+	pulls, err := sc.gh.ListPulls(r.Context(), branchPrefix+col.Name+"/")
 	if err != nil {
 		fail(w, err)
 		return
 	}
+	a.markScheduled(sc.site.ID, pulls)
+	head, err := sc.gh.BranchSHA(r.Context(), sc.site.Branch)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	// Any commit on the branch (from the CMS or a push) moves head, a draft is pushed to when updated_at moves.
+	// The collection settings are part of the key: they change what is read and how it is summarized.
+	cfg, _ := json.Marshal(col)
+	key := fmt.Sprintf("%s\n%s", head, cfg)
+	for _, p := range pulls {
+		key += fmt.Sprintf("\n%d %s %s", p.Number, p.Head.Ref, p.UpdatedAt.Format(time.RFC3339Nano))
+	}
+	id := fmt.Sprintf("%d/%s", sc.site.ID, col.Name)
+	var entries []entrySummary
+	if c, ok := a.entries.Load(id); ok && c.(cachedEntries).key == key {
+		entries = slices.Clone(c.(cachedEntries).entries)
+	} else {
+		if entries, err = sc.readEntries(r.Context(), col, pulls); err != nil {
+			fail(w, err)
+			return
+		}
+		a.entries.Store(id, cachedEntries{key: key, entries: slices.Clone(entries)})
+	}
+	// The drafts point to this request's pulls: their schedule lives in the database, not in the key.
+	byNumber := map[int]*forge.Pull{}
+	for i := range pulls {
+		byNumber[pulls[i].Number] = &pulls[i]
+	}
+	for i := range entries {
+		if entries[i].Draft != nil {
+			entries[i].Draft = byNumber[entries[i].Draft.Number]
+		}
+	}
+	writeJSON(w, entries)
+}
+
+// readEntries reads the entries of a collection and of its open drafts from the forge.
+func (sc *siteCtx) readEntries(ctx context.Context, col *content.Collection, pulls []forge.Pull) ([]entrySummary, error) {
+	var extra []string
+	prefix := branchPrefix + col.Name + "/"
 	for _, p := range pulls {
 		extra = append(extra, p.Head.Ref+":"+entryPath(col, strings.TrimPrefix(p.Head.Ref, prefix)))
 	}
-	a.markScheduled(sc.site.ID, pulls)
 	dir, suffix := col.Dir("")
-	blobs, drafts, err := sc.gh.ReadDir(r.Context(), sc.site.Branch, dir, col.Ext(), extra)
+	blobs, drafts, err := sc.gh.ReadDir(ctx, sc.site.Branch, dir, col.Ext(), extra)
 	if err != nil {
-		fail(w, err)
-		return
+		return nil, err
 	}
 	entries := []entrySummary{}
 	index := map[string]int{}
@@ -253,12 +297,11 @@ func (a *API) listEntries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if col.I18n {
-		if err := sc.markLocales(r.Context(), col, blobs, entries, index); err != nil {
-			fail(w, err)
-			return
+		if err := sc.markLocales(ctx, col, blobs, entries, index); err != nil {
+			return nil, err
 		}
 	}
-	writeJSON(w, entries)
+	return entries, nil
 }
 
 // markLocales fills the published locales of the entries of a translated collection.
