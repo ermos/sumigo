@@ -566,6 +566,25 @@ func (s *Store) DeleteAutosave(siteID, userID int64, col, slug string) error {
 	return err
 }
 
+// --- Collection views
+
+// CollectionView returns how the user lists a collection, nil when never set.
+func (s *Store) CollectionView(siteID, userID int64, col string) (json.RawMessage, error) {
+	var data string
+	err := s.db.QueryRow(`SELECT data FROM collection_views WHERE site_id = ? AND user_id = ? AND collection = ?`, siteID, userID, col).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return json.RawMessage(data), err
+}
+
+func (s *Store) SetCollectionView(siteID, userID int64, col string, data json.RawMessage) error {
+	_, err := s.db.Exec(`INSERT INTO collection_views (site_id, user_id, collection, data) VALUES (?, ?, ?, ?)
+		ON CONFLICT (site_id, user_id, collection) DO UPDATE SET data = excluded.data`,
+		siteID, userID, col, string(data))
+	return err
+}
+
 // --- AI settings
 
 // AISettings configure the AI assistant for the whole instance. Sites opt in on top of it.

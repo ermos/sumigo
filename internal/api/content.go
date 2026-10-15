@@ -566,6 +566,36 @@ func (a *API) autosave(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// collectionView keeps how the user lists a collection (columns, sort, filters), opaque to the server.
+func (a *API) collectionView(w http.ResponseWriter, r *http.Request) {
+	sc, col, ok := a.collection(w, r, store.RoleViewer)
+	if !ok {
+		return
+	}
+	if r.Method == http.MethodGet {
+		view, err := a.Store.CollectionView(sc.site.ID, sc.user.ID, col.Name)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		writeJSON(w, view)
+		return
+	}
+	var in json.RawMessage
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if len(in) > 64<<10 {
+		httpError(w, http.StatusBadRequest, "invalid_data", "view too large")
+		return
+	}
+	if err := a.Store.SetCollectionView(sc.site.ID, sc.user.ID, col.Name, in); err != nil {
+		fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // deleteEntry deletes an entry and its draft. With ?only=draft, it drops the draft and keeps the published version.
 func (a *API) deleteEntry(w http.ResponseWriter, r *http.Request) {
 	sc, col, ok := a.collection(w, r, store.RoleEditor)
