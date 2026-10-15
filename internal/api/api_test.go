@@ -521,6 +521,44 @@ func TestCustomDomainsOpenASiteAndAllowCORSLive(t *testing.T) {
 	}
 }
 
+func TestCrossSiteFormsCannotActForTheUser(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	admin := &store.User{Email: "root@acme.io", Name: "Root", IsAdmin: true}
+	if err := st.CreateUser(admin, "password123"); err != nil {
+		t.Fatal(err)
+	}
+	token, _ := st.CreateSession(admin.ID, time.Hour)
+	post := func(header map[string]string) int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/users", strings.NewReader(`{"email":"evil@acme.io","first_name":"Evil","is_admin":true,"password":"password123"}`))
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
+		req.Header.Set("Content-Type", "text/plain")
+		for k, v := range header {
+			req.Header.Set(k, v)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+
+	// A page of the published site, same-site with the CMS, so the browser sends the session cookie.
+	if code := post(map[string]string{"Origin": "https://acme.io", "Sec-Fetch-Site": "same-site"}); code != http.StatusForbidden {
+		t.Fatalf("same-site form accepted: %d", code)
+	}
+	if code := post(map[string]string{"Origin": "https://evil.example"}); code != http.StatusForbidden {
+		t.Fatalf("cross-site form accepted: %d", code)
+	}
+	if n, _ := st.CountUsers(); n != 1 {
+		t.Fatalf("a forged request created a user: %d users", n)
+	}
+	if code := post(map[string]string{"Sec-Fetch-Site": "same-origin"}); code != http.StatusOK {
+		t.Fatalf("same-origin request refused: %d", code)
+	}
+}
+
 func TestTemporaryPasswordMustBeReplacedAtFirstLogin(t *testing.T) {
 	a, st := newTestAPI(t, &fakeGitHub{})
 	srv := httptest.NewServer(a.Handler())
