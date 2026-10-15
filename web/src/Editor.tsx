@@ -4,7 +4,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { api, can, Collection, Commit, Entry, forgeNames, HttpError, EntrySummary, Field, fieldI18n, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { DraftPill, Empty, entriesKey, fetchEntries, formatDate, formatDateTime, Loading, Notice, useSite } from './Site';
-import { Pending, Spinner } from './ui';
+import { Icon, icons, Pending, Spinner } from './ui';
 import { getCached, setCached, useCached } from './cache';
 import { diffText, Part } from './diff';
 import { Chevron } from './App';
@@ -886,27 +886,6 @@ function ImageInput({ site, value, onChange, readOnly }: { site: SiteDetail; val
     </span>
   );
 }
-
-// Lucide-style 16px stroke icons, inlined so the toolbar needs no icon package.
-const icons = {
-  bold: 'M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8',
-  italic: 'M19 4h-9M14 20H5M15 4 9 20',
-  strike: 'M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6M4 12h16',
-  link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
-  quote: 'M17 6H3M21 12H8M21 18H8M3 12v6',
-  code: 'm16 18 6-6-6-6M8 6l-6 6 6 6',
-  ul: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
-  ol: 'M10 6h11M10 12h11M10 18h11M4 6h1v4M4 10h2M6 18H4c0-1 2-2 2-3s-1-1.5-2-1',
-  image: 'M21 15l-5-5L5 21M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 9h.01',
-  sparkle:
-    'M9.94 15.5a2 2 0 0 0-1.44-1.44l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0l1.58 6.13a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96l-6.13 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0zM20 3v4M22 5h-4',
-};
-
-const Icon = ({ d, size = 'size-4' }: { d: string; size?: string }) => (
-  <svg viewBox="0 0 24 24" className={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d={d} />
-  </svg>
-);
 
 const BLOCK_PREFIX = /^(#{1,6} |> |[-*] |\d+\. )/;
 const isMac = typeof navigator !== 'undefined' && /Mac|iP/.test(navigator.platform);

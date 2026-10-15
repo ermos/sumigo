@@ -1,10 +1,11 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, NavLink, Outlet, useMatch, useOutletContext, useParams } from 'react-router-dom';
-import { api, can, EntrySummary, forgeNames, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
+import { api, can, EntrySummary, Field, forgeNames, MediaFile, mediaSrc, Pull, SiteDetail, uploadMedia } from './api';
 import { Ctx, useCtx } from './App';
 
-import { useCached } from './cache';
-import { Pending, Spinner, useAction, useConfirm } from './ui';
+import { setCached, useCached } from './cache';
+import { applyView, cell, defaultView, listable, pageSizes, text, View } from './listview';
+import { Icon, icons, Pending, Spinner, useAction, useConfirm } from './ui';
 import { lang, t } from './i18n';
 
 // fetchEntries loads a collection, newest first. Shared by its list and the relation fields pointing to it, which share the cache.
@@ -167,18 +168,55 @@ export const DraftPill = ({ pull }: { pull: Pull }) =>
 export function CollectionView() {
   const site = useSite();
   const { col } = useParams();
-  const [filter, setFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
+  const panel = useRef<HTMLDialogElement>(null);
   const collection = site.config?.collections.find((c) => c.name === col);
   const { data: entries, error } = useCached(entriesKey(site.id, col), () => fetchEntries(site.id, col!));
+  const viewKey = `view:${site.id}:${col}`;
+  const { data: saved } = useCached(viewKey, () => api<Partial<View> | null>('GET', `/sites/${site.id}/collections/${col}/view`));
+  const [edited, setEdited] = useState<{ col?: string; view: View }>();
+  const timer = useRef(0);
 
   if (!collection) return <Empty>{t('Unknown collection.')}</Empty>;
-  const q = filter.toLowerCase();
-  const shown = entries?.filter((e) => e.title.toLowerCase().includes(q) || e.slug.includes(q));
+  const fields = listable(collection);
+  const view: View = edited && edited.col === col ? edited.view : { ...defaultView(collection), ...saved };
+  // ponytail: columns follow the field order of sumigo.yml, drag to reorder if users ask for it.
+  const columns = fields.filter((f) => view.columns.includes(f.name) && f.name !== collection.identifier_field && f.name !== 'title');
+  const update = (patch: Partial<View>) => {
+    const v = { ...view, ...patch };
+    setEdited({ col, view: v });
+    setCached(viewKey, v);
+    setPage(0);
+    clearTimeout(timer.current);
+    // Saved once the user stops typing, not on every key of a filter.
+    timer.current = window.setTimeout(() => api('PUT', `/sites/${site.id}/collections/${col}/view`, v).catch(() => {}), 600);
+  };
+
+  const shown = entries && applyView(entries, view, search);
+  const pages = Math.max(1, Math.ceil((shown?.length ?? 0) / view.pageSize));
+  const current = Math.min(page, pages - 1);
+  const rows = shown?.slice(current * view.pageSize, (current + 1) * view.pageSize);
+  const active = view.filters.filter((f) => f.value).length;
+  const translated = collection.i18n && (collection.locales?.length ?? 0) > 1;
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center gap-3">
         <h1 className="mr-auto">{collection.label || collection.name}</h1>
-        <input className="field w-56" type="search" placeholder={t('Search')} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        <input
+          className="field w-56"
+          type="search"
+          placeholder={t('Search')}
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setPage(0);
+          }}
+        />
+        <button type="button" className="btn relative px-2" onClick={() => panel.current?.showModal()} aria-label={t('Display')} title={t('Display')}>
+          <Icon d={icons.sliders} />
+          {active > 0 && <span className="absolute -top-1.5 -right-1.5 grid size-4 place-items-center rounded-full bg-accent text-[10px] font-semibold text-white">{active}</span>}
+        </button>
         {can(site.role, 'editor') && collection.create !== false && (
           <Link className="btn btn-primary" to={`/sites/${site.id}/c/${col}/new`}>
             {t('New entry')}
@@ -187,14 +225,14 @@ export function CollectionView() {
       </div>
       {error && <Notice>{error}</Notice>}
       {!entries && !error && <EntriesPlaceholder />}
-      {shown && shown.length > 0 && (
+      {rows && rows.length > 0 && (
         <ul className="panel divide-y divide-line">
-          {shown.map((e) => (
+          {rows.map((e) => (
             <li key={e.slug}>
               <Link to={`/sites/${site.id}/c/${col}/e/${encodeURIComponent(e.slug)}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-canvas/60">
                 <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{e.title}</span>
                 {e.draft && <DraftPill pull={e.draft} />}
-                {collection.i18n && (collection.locales?.length ?? 0) > 1 && (
+                {translated && (
                   <span className="hidden gap-1.5 font-mono text-[11px] font-medium uppercase sm:flex">
                     {collection.locales!.map((l) =>
                       e.locales?.includes(l) ? (
@@ -207,15 +245,203 @@ export function CollectionView() {
                     )}
                   </span>
                 )}
-                <span className="w-28 shrink-0 text-right text-[13px] text-muted tabular-nums">{formatDate(e.date)}</span>
+                {columns.map((f) => (
+                  <span key={f.name} className="hidden w-32 shrink-0 truncate text-right text-[13px] text-muted tabular-nums sm:block" title={f.label || f.name}>
+                    <Cell field={f} value={cell(e, f.name)} />
+                  </span>
+                ))}
               </Link>
             </li>
           ))}
         </ul>
       )}
-      {shown?.length === 0 && <Empty>{t(filter ? 'No entry matches this search.' : 'No entries yet.')}</Empty>}
+      {shown && shown.length > view.pageSize && (
+        <nav className="mt-4 flex items-center justify-end gap-2 text-[13px] text-muted" aria-label={t('Pagination')}>
+          <span className="mr-2 tabular-nums">
+            {t('{from}–{to} of {total}', {
+              from: current * view.pageSize + 1,
+              to: current * view.pageSize + rows!.length,
+              total: shown.length,
+            })}
+          </span>
+          <button type="button" className="btn px-1.5" disabled={current === 0} onClick={() => setPage(current - 1)} aria-label={t('Previous page')}>
+            <Icon d={icons.left} />
+          </button>
+          <button type="button" className="btn px-1.5" disabled={current >= pages - 1} onClick={() => setPage(current + 1)} aria-label={t('Next page')}>
+            <Icon d={icons.right} />
+          </button>
+        </nav>
+      )}
+      {shown?.length === 0 && <Empty>{t(search || active ? 'No entry matches this search.' : 'No entries yet.')}</Empty>}
+      <dialog
+        ref={panel}
+        onClick={(e) => e.target === panel.current && panel.current.close()}
+        className="drawer m-0 ml-auto h-dvh max-h-none w-full max-w-[380px] border-l border-line bg-surface p-0 text-ink shadow-2xl backdrop:bg-ink/25 backdrop:backdrop-blur-[2px]"
+      >
+        <div className="flex h-full flex-col">
+          <header className="flex items-center gap-3 border-b border-line px-5 py-4">
+            <span className="grid size-8 place-items-center rounded-md bg-accent-soft text-accent">
+              <Icon d={icons.sliders} />
+            </span>
+            <h2 className="mr-auto">{t('Display')}</h2>
+            <button type="button" className="grid size-8 place-items-center rounded-md text-muted transition-colors hover:bg-canvas hover:text-ink" onClick={() => panel.current?.close()} aria-label={t('Close')}>
+              <Icon d={icons.x} />
+            </button>
+          </header>
+          <div className="flex-1 divide-y divide-line overflow-y-auto px-5">
+            <Section icon={icons.columns} title={t('Columns')}>
+              <div className="flex flex-wrap gap-1.5">
+                {fields
+                  .filter((f) => f.name !== 'title' && f.name !== collection.identifier_field)
+                  .map((f) => {
+                    const on = view.columns.includes(f.name);
+                    return (
+                      <button
+                        key={f.name}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => update({ columns: on ? view.columns.filter((c) => c !== f.name) : [...view.columns, f.name] })}
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-medium ring-1 transition-colors ${on ? 'bg-accent-soft text-accent ring-accent/30' : 'text-muted ring-line hover:text-ink hover:ring-ink/20'}`}
+                      >
+                        {on && <Icon d={icons.check} size="size-3.5" />}
+                        {f.label || f.name}
+                      </button>
+                    );
+                  })}
+              </div>
+            </Section>
+            <Section icon={icons.sort} title={t('Sort by')}>
+              <select className="field" value={view.sort.field} onChange={(e) => update({ sort: { ...view.sort, field: e.target.value } })} aria-label={t('Sort by')}>
+                {!fields.some((f) => f.name === 'title') && <option value="title">{t('Title')}</option>}
+                {fields.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.label || f.name}
+                  </option>
+                ))}
+              </select>
+              <Segmented
+                label={t('Order')}
+                value={view.sort.desc}
+                onChange={(desc) => update({ sort: { ...view.sort, desc } })}
+                options={[
+                  { value: false, label: t('Ascending'), icon: icons.up },
+                  { value: true, label: t('Descending'), icon: icons.down },
+                ]}
+              />
+            </Section>
+            <Section icon={icons.filter} title={t('Filters')} count={active}>
+              {view.filters.map((f, i) => {
+                const field = fields.find((x) => x.name === f.field);
+                const set = (patch: Partial<View['filters'][number]>) => update({ filters: view.filters.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                return (
+                  <div key={i} className="flex flex-col gap-2 rounded-lg bg-canvas p-2.5 ring-1 ring-line">
+                    <div className="flex items-center gap-2">
+                      <select className="field py-1 text-[13px]" value={f.field} onChange={(e) => set({ field: e.target.value, value: '' })} aria-label={t('Field')}>
+                        {fields.map((x) => (
+                          <option key={x.name} value={x.name}>
+                            {x.label || x.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="grid size-7 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                        onClick={() => update({ filters: view.filters.filter((_, j) => j !== i) })}
+                        aria-label={t('Remove filter')}
+                      >
+                        <Icon d={icons.x} size="size-3.5" />
+                      </button>
+                    </div>
+                    {field?.widget === 'boolean' || field?.options ? (
+                      <select className="field" value={f.value} onChange={(e) => set({ value: e.target.value })} aria-label={t('Value')}>
+                        <option value="" />
+                        {(field.options ?? ['true', 'false']).map((o) => {
+                          const [value, label] = typeof o === 'string' ? [o, o] : [o.value, o.label];
+                          return (
+                            <option key={value} value={value}>
+                              {field.widget === 'boolean' ? t(value === 'true' ? 'Yes' : 'No') : label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <input className="field" value={f.value} placeholder={t('Contains…')} onChange={(e) => set({ value: e.target.value })} aria-label={t('Value')} />
+                    )}
+                  </div>
+                );
+              })}
+              {fields.length > 0 && (
+                <button
+                  type="button"
+                  className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-line py-2 text-[13px] font-medium text-muted transition-colors hover:border-accent/50 hover:bg-accent-soft/50 hover:text-accent"
+                  onClick={() => update({ filters: [...view.filters, { field: fields[0].name, value: '' }] })}
+                >
+                  <Icon d={icons.plus} size="size-3.5" />
+                  {t('Add filter')}
+                </button>
+              )}
+            </Section>
+            <Section icon={icons.ul} title={t('Per page')}>
+              <Segmented label={t('Per page')} value={view.pageSize} onChange={(pageSize) => update({ pageSize })} options={pageSizes.map((n) => ({ value: n, label: String(n) }))} />
+            </Section>
+          </div>
+          <footer className="flex items-center justify-between gap-2 border-t border-line bg-canvas/60 px-5 py-3.5">
+            <button type="button" className="btn border-transparent bg-transparent text-muted shadow-none hover:text-ink" onClick={() => update(defaultView(collection))}>
+              <Icon d={icons.reset} size="size-3.5" />
+              {t('Reset')}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => panel.current?.close()}>
+              {t('Done')}
+            </button>
+          </footer>
+        </div>
+      </dialog>
     </>
   );
+}
+
+// Section is a block of the display panel: a small caps title over its controls.
+const Section = ({ icon, title, count = 0, children }: { icon: string; title: string; count?: number; children: ReactNode }) => (
+  <section className="flex flex-col gap-3 py-5">
+    <h3 className="flex items-center gap-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
+      <Icon d={icon} size="size-3.5" />
+      {title}
+      {count > 0 && <span className="pill bg-accent-soft px-1.5 py-0 text-accent">{count}</span>}
+    </h3>
+    {children}
+  </section>
+);
+
+// Segmented picks one of a few values, like the active link of the sidebar.
+function Segmented<T>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; label: string; icon?: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex rounded-md bg-canvas p-0.5 ring-1 ring-line">
+      {options.map((o) => (
+        <button
+          key={o.label}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          onClick={() => onChange(o.value)}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-[5px] px-3 py-1 text-[13px] font-medium transition-colors ${o.value === value ? 'bg-surface text-ink shadow-xs ring-1 ring-line' : 'text-muted hover:text-ink'}`}
+        >
+          {o.icon && <Icon d={o.icon} size="size-3.5" />}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Cell shows a field value in a row: dates formatted, images as a thumbnail, lists joined.
+function Cell({ field, value }: { field: Field; value: unknown }) {
+  const site = useSite();
+  if (value == null || value === '') return null;
+  if (field.widget === 'date' || field.widget === 'datetime') return <>{formatDate(String(value))}</>;
+  if (field.widget === 'boolean') return <>{t(value ? 'Yes' : 'No')}</>;
+  if (field.widget === 'image') return <img src={mediaSrc(site, String(value))} alt="" className="ml-auto size-7 rounded object-cover" onError={(e) => (e.currentTarget.style.display = 'none')} />;
+  const label = field.options?.find((o) => typeof o !== 'string' && o.value === value);
+  return <>{label && typeof label !== 'string' ? label.label : text(value)}</>;
 }
 
 // EntriesPlaceholder mimics the entry list while it loads: same rows, grey bars instead of text.

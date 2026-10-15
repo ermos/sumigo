@@ -172,6 +172,15 @@ func TestPRWorkflowCommitsAsCMSUser(t *testing.T) {
 	if got := autosaved(); !strings.Contains(got, `"data":{"title":"Hel"}`) || len(gh.writes) != 0 {
 		t.Fatalf("autosave = %s, writes = %v", got, gh.writes)
 	}
+	// A viewer keeps their own way of listing a collection, the others see the default.
+	if res := do(viewer, http.MethodPut, "/api/sites/1/collections/posts/view", `{"columns":["title"]}`); res.StatusCode != http.StatusNoContent {
+		t.Fatalf("view save failed: %d", res.StatusCode)
+	}
+	for u, want := range map[*store.User]string{viewer: `{"columns":["title"]}`, editor: "null"} {
+		if b, _ := io.ReadAll(do(u, http.MethodGet, "/api/sites/1/collections/posts/view", "").Body); strings.TrimSpace(string(b)) != want {
+			t.Fatalf("view of %s = %s, want %s", u.Email, b, want)
+		}
+	}
 	res := post(editor, `{"data":{"title":"Hello World","body":"Hi"}}`)
 	if res.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(res.Body)

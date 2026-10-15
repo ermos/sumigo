@@ -104,6 +104,8 @@ func (a *API) Handler() http.Handler {
 	auth("GET /api/sites/{site}/collections/{col}/autosave", a.autosave)
 	auth("PUT /api/sites/{site}/collections/{col}/autosave", a.autosave)
 	auth("DELETE /api/sites/{site}/collections/{col}/autosave", a.autosave)
+	auth("GET /api/sites/{site}/collections/{col}/view", a.collectionView)
+	auth("PUT /api/sites/{site}/collections/{col}/view", a.collectionView)
 	auth("GET /api/sites/{site}/media", a.listMedia)
 	auth("POST /api/sites/{site}/media", a.uploadMedia)
 	auth("GET /api/sites/{site}/media/{name}", a.getMedia)
