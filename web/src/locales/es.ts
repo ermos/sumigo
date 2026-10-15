@@ -282,6 +282,7 @@ export const es: Record<keyof typeof fr, string> = {
   'error.internal': 'Error interno, inténtalo de nuevo.',
   'error.invalid_access': 'Accesos no válidos: {detail}',
   'error.invalid_credentials': 'Correo o contraseña incorrectos.',
+  'error.too_many_attempts': 'Demasiados intentos fallidos, inténtalo de nuevo en 15 minutos.',
   'error.invalid_data': 'Datos no válidos: {detail}',
   'error.invalid_json': 'Solicitud no válida.',
   'error.invalid_slug': 'Slug no válido.',

@@ -767,3 +767,37 @@ func TestUsersListTheSitesTheyOpen(t *testing.T) {
 		t.Fatalf("sites = %v", got)
 	}
 }
+
+func TestLoginWaitsAfterTooManyWrongPasswords(t *testing.T) {
+	a, st := newTestAPI(t, &fakeGitHub{})
+	srv := httptest.NewServer(a.Handler())
+	defer srv.Close()
+	for _, email := range []string{"jane@acme.io", "bob@acme.io"} {
+		if err := st.CreateUser(&store.User{Email: email, Name: "X"}, "password123"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	login := func(email, password string) int {
+		res, err := http.Post(srv.URL+"/api/login", "application/json", strings.NewReader(`{"email":"`+email+`","password":"`+password+`"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.StatusCode
+	}
+
+	for i := range maxLoginFails {
+		// The case of the email does not give extra attempts.
+		if code := login([]string{"jane@acme.io", "JANE@acme.io"}[i%2], "guess"); code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: %d", i, code)
+		}
+	}
+	if code := login("jane@acme.io", "password123"); code != http.StatusTooManyRequests {
+		t.Fatalf("right password after too many attempts: %d", code)
+	}
+	if code := login("bob@acme.io", "password123"); code != http.StatusOK {
+		t.Fatalf("another account is locked too: %d", code)
+	}
+	if a.logins.blocked("jane@acme.io", time.Now().Add(loginWindow)) {
+		t.Fatal("the wait must end with the window")
+	}
+}

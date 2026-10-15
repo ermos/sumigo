@@ -40,6 +40,8 @@ type API struct {
 
 	setupMu   sync.Mutex
 	setupCode string // set while the instance has no user, see PrepareSetup
+
+	logins loginThrottle
 }
 
 type ctxKey struct{}
@@ -194,13 +196,74 @@ func pathID(r *http.Request, name string) int64 {
 
 // --- auth
 
+// Password guessing: after maxLoginFails wrong passwords on an email, its login waits for the end of loginWindow.
+const (
+	maxLoginFails = 10
+	loginWindow   = 15 * time.Minute
+)
+
+// loginThrottle counts the failed logins of each email, in memory.
+// ponytail: keyed by email only, so an attacker can lock an account for loginWindow (SSO still opens it);
+// per-instance memory, a restart resets it, move to the database if several instances share one.
+type loginThrottle struct {
+	mu    sync.Mutex
+	fails map[string]loginFails
+}
+
+type loginFails struct {
+	n     int
+	since time.Time
+}
+
+func (t *loginThrottle) blocked(key string, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	f := t.fails[key]
+	return f.n >= maxLoginFails && now.Sub(f.since) < loginWindow
+}
+
+func (t *loginThrottle) fail(key string, now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.fails == nil {
+		t.fails = map[string]loginFails{}
+	}
+	// Made-up emails must not grow the map forever: drop the windows that are over.
+	if len(t.fails) > 10000 {
+		for k, f := range t.fails {
+			if now.Sub(f.since) >= loginWindow {
+				delete(t.fails, k)
+			}
+		}
+	}
+	f := t.fails[key]
+	if now.Sub(f.since) >= loginWindow {
+		f = loginFails{since: now}
+	}
+	f.n++
+	t.fails[key] = f
+}
+
+func (t *loginThrottle) reset(key string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.fails, key)
+}
+
 func (a *API) login(w http.ResponseWriter, r *http.Request) {
 	var in struct{ Email, Password string }
 	if !readJSON(w, r, &in) {
 		return
 	}
-	u, err := a.Store.Authenticate(strings.TrimSpace(in.Email), in.Password)
+	email := strings.TrimSpace(in.Email)
+	key, now := strings.ToLower(email), time.Now()
+	if a.logins.blocked(key, now) {
+		httpError(w, http.StatusTooManyRequests, "too_many_attempts", "too many failed attempts, try again in 15 minutes")
+		return
+	}
+	u, err := a.Store.Authenticate(email, in.Password)
 	if errors.Is(err, store.ErrNotFound) {
+		a.logins.fail(key, now)
 		httpError(w, http.StatusUnauthorized, "invalid_credentials", "invalid credentials")
 		return
 	}
@@ -208,6 +271,7 @@ func (a *API) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
+	a.logins.reset(key)
 	if err := a.startSession(w, u); err != nil {
 		fail(w, err)
 		return
