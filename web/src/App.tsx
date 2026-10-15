@@ -4,10 +4,11 @@ import { api, HttpError, Site, User } from './api';
 import { clearCache } from './cache';
 import { Lang, lang, languages, setLang, t, tError } from './i18n';
 import { Pending, ProgressBar, useAction } from './ui';
-import { CollectionView, ContentLayout, Loading, MediaView, PullsView, SettingsLayout, SetupView, SiteHome, SiteLayout } from './Site';
+import { CollectionView, ContentLayout, Loading, MediaView, PullsView, SettingsLayout, SiteHome, SiteLayout } from './Site';
 import Editor from './Editor';
 // The sumigo.yml editor brings CodeMirror: loaded only when opened.
 const ConfigEditor = lazy(() => import('./ConfigEditor'));
+const SetupView = lazy(() => import('./ConfigEditor').then((m) => ({ default: m.SetupView })));
 import { AdminLayout, AdminSites, AISettingsPage, SiteDomains, SiteForm, SiteMembers, SSOSettingsPage, Users } from './Admin';
 
 export interface Ctx {
@@ -71,7 +72,14 @@ export default function App() {
             </Route>
             <Route path="workflow" element={<PullsView />} />
             <Route path="media" element={<MediaView />} />
-            <Route path="setup" element={<SetupView />} />
+            <Route
+              path="setup"
+              element={
+                <Suspense fallback={null}>
+                  <SetupView />
+                </Suspense>
+              }
+            />
             <Route path="settings" element={<SettingsLayout />}>
               <Route index element={<SiteForm />} />
               <Route path="domains" element={<SiteDomains />} />
