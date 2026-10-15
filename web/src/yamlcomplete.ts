@@ -22,6 +22,10 @@ export const keys: Record<string, Record<string, string>> = {
     default: 'Value of new entries',
     options: 'Choices of a select',
     fields: 'Fields of an object',
+    collection: 'Collection a relation points to',
+    value_field: 'Stored value of a relation, {{slug}} by default',
+    display_fields: 'Fields shown to pick a relation',
+    multiple: 'true picks several entries',
   },
   seo: {
     title: 'Field of the meta title',
@@ -31,8 +35,8 @@ export const keys: Record<string, Record<string, string>> = {
     slug: 'Check the focus keyword in the URL',
   },
 };
-const widgets = ['string', 'text', 'markdown', 'date', 'datetime', 'boolean', 'number', 'select', 'list', 'image', 'hidden', 'object'];
-const booleans = ['required', 'create', 'slug'];
+const widgets = ['string', 'text', 'markdown', 'date', 'datetime', 'boolean', 'number', 'select', 'list', 'image', 'hidden', 'object', 'relation'];
+const booleans = ['required', 'create', 'slug', 'multiple'];
 
 const indentOf = (line: string) => line.length - line.trimStart().replace(/^-\s*/, '').length;
 
