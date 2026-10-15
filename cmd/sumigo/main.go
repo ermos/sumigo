@@ -47,7 +47,11 @@ func main() {
 	mux.HandleFunc("GET /ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
 	mux.Handle("/", web.Handler())
 
-	srv := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	// ReadTimeout bounds slow uploads (10MB of media). No WriteTimeout: an AI answer takes up to 3 minutes.
+	srv := &http.Server{
+		Addr: ":" + env("PORT", "8080"), Handler: mux,
+		ReadHeaderTimeout: 10 * time.Second, ReadTimeout: time.Minute, IdleTimeout: 2 * time.Minute,
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go a.RunScheduler(ctx, time.Minute)
