@@ -205,9 +205,15 @@ func (s *Store) BindOIDCSubject(id int64, subject string) error {
 	return err
 }
 
+// unknownUserHash is compared when no user has the email, so an unknown email takes as long as a wrong password.
+const unknownUserHash = "$2a$10$dOXNsMODkXz8YvqO/8ouJewZUf/WSQg2rE4JCSzC/YeOmwHFHCkMa"
+
 // Authenticate returns the user matching email and password.
 func (s *Store) Authenticate(email, password string) (*User, error) {
 	u, err := s.userWhere("email = ?", email)
+	if errors.Is(err, ErrNotFound) {
+		_ = bcrypt.CompareHashAndPassword([]byte(unknownUserHash), []byte(password))
+	}
 	if err != nil {
 		return nil, err
 	}

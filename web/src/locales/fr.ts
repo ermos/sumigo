@@ -280,6 +280,7 @@ export const fr = {
   'error.internal': 'Erreur interne, réessayez.',
   'error.invalid_access': 'Accès invalides : {detail}',
   'error.invalid_credentials': 'E-mail ou mot de passe incorrect.',
+  'error.too_many_attempts': 'Trop de tentatives échouées, réessayez dans 15 minutes.',
   'error.invalid_data': 'Données invalides : {detail}',
   'error.invalid_json': 'Requête invalide.',
   'error.invalid_slug': 'Slug invalide.',
