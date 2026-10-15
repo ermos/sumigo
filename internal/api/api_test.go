@@ -287,6 +287,9 @@ func TestMediaAndHistoryAreServed(t *testing.T) {
 	if !strings.Contains(res.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatal("uploaded files must be served sandboxed")
 	}
+	if res, body := get("/api/sites/1/media/x%2F..%2F..%2F..%2Fsumigo.yml"); res.StatusCode != http.StatusNotFound {
+		t.Fatalf("a media name must not reach files outside the media folder: %d %s", res.StatusCode, body)
+	}
 
 	// History: versions of an entry, then one version's content to restore.
 	if _, body := get("/api/sites/1/collections/posts/entries/old/history"); !strings.Contains(body, `"message":"content(posts): update old","author":"Jane"`) {

@@ -589,8 +589,9 @@ func (a *API) mediaPath(w http.ResponseWriter, r *http.Request, min string) (*si
 		httpError(w, http.StatusBadGateway, "config", err.Error(), params{"detail": err.Error()})
 		return nil, "", false
 	}
+	// The mux decodes %2F in {name}: validSlug keeps "x%2F..%2F..%2Fsumigo.yml" out of the media folder.
 	name := r.PathValue("name")
-	if cfg.MediaFolder == "" || name == "" || strings.HasPrefix(name, ".") {
+	if cfg.MediaFolder == "" || !validSlug(name) {
 		httpError(w, http.StatusNotFound, "not_found", "not found")
 		return nil, "", false
 	}
